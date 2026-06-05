@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理画面 — mate wo mate</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#FFF8F3;--surface:#FFF;--border:#EDE0D4;
+    --accent:#B08A5E;--al:#F5EBE0;--ad:#8A6A40;
+    --text:#2C2215;--muted:#8A7A6A;--danger:#C0392B;
+    --r:12px;--sh:0 2px 12px rgba(44,34,21,.08);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+  header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 32px;height:64px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:var(--sh)}
+  .logo{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:700;color:var(--ad)}
+  .logo-icon{width:36px;height:36px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px}
+  .hbadge{background:var(--al);color:var(--ad);font-size:12px;padding:3px 10px;border-radius:20px;font-weight:600}
+  .hright{display:flex;align-items:center;gap:12px}
+  .user-email{font-size:13px;color:var(--muted)}
+  main{max-width:1100px;margin:0 auto;padding:40px 24px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:36px}
+  .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px 24px}
+  .stat-label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+  .stat-value{font-size:28px;font-weight:700;color:var(--ad)}
+  .sec-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+  .sec-title{font-size:18px;font-weight:700}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all .15s;font-family:inherit}
+  .btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:var(--ad)}
+  .btn-outline{background:transparent;color:var(--accent);border:1.5px solid var(--accent)}.btn-outline:hover{background:var(--al)}
+  .btn-danger{background:transparent;color:var(--danger);border:1.5px solid #e8b4b0}.btn-danger:hover{background:#fdf0ee}
+  .btn-ghost{background:transparent;color:var(--muted);border:1.5px solid var(--border)}.btn-ghost:hover{background:var(--al)}
+  .btn-copy{background:var(--al);color:var(--ad);border:none}.btn-copy:hover{background:#e8d5c0}
+  .btn-sm{padding:6px 14px;font-size:13px}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--sh)}
+  table{width:100%;border-collapse:collapse}
+  thead{background:var(--al)}
+  th{padding:12px 20px;text-align:left;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  td{padding:16px 20px;border-top:1px solid var(--border);vertical-align:middle;font-size:14px}
+  tr:hover td{background:#FFFAF6}
+  .cname{font-weight:600;font-size:15px}.stype{font-size:12px;color:var(--muted);margin-top:2px}
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600}
+  .ba{background:#D4EDDA;color:#196032}.bs{background:#FFF3CD;color:#856404}.be{background:#FDECEA;color:#96201A}
+  .actions{display:flex;gap:8px;flex-wrap:wrap}
+  .empty-state{text-align:center;padding:60px 20px;color:var(--muted)}
+  /* Overlay */
+  .overlay{position:fixed;inset:0;background:rgba(44,34,21,.55);backdrop-filter:blur(6px);z-index:300;display:flex;align-items:center;justify-content:center;padding:24px}
+  .overlay-card{background:var(--surface);border-radius:18px;width:100%;max-width:480px;padding:40px;box-shadow:0 24px 64px rgba(44,34,21,.22)}
+  .overlay-title{font-size:22px;font-weight:700;margin-bottom:8px;text-align:center}
+  .overlay-sub{font-size:14px;color:var(--muted);text-align:center;margin-bottom:28px;line-height:1.7}
+  /* Modal */
+  .modal-overlay{position:fixed;inset:0;background:rgba(44,34,21,.4);backdrop-filter:blur(4px);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;opacity:0;pointer-events:none;transition:opacity .2s}
+  .modal-overlay.open{opacity:1;pointer-events:all}
+  .modal{background:var(--surface);border-radius:16px;width:100%;max-width:580px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(44,34,21,.2)}
+  .modal-hdr{padding:24px 28px 0;display:flex;align-items:center;justify-content:space-between}
+  .modal-title{font-size:18px;font-weight:700}
+  .modal-close{width:32px;height:32px;border-radius:50%;background:var(--bg);border:none;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;color:var(--muted)}
+  .modal-close:hover{background:var(--border)}
+  .modal-body{padding:24px 28px 28px}
+  .fg{margin-bottom:20px}
+  label.lbl{display:block;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:6px}
+  input[type=text],input[type=date],input[type=email],input[type=password],select,textarea{width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text);transition:border-color .15s}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);background:#fff}
+  textarea{resize:vertical;min-height:80px}
+  .form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .form-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:24px;border-top:1px solid var(--border);padding-top:20px}
+  /* Quality toggle */
+  .quality-toggle{display:flex;border:1.5px solid var(--border);border-radius:10px;overflow:hidden;margin-top:4px}
+  .qtab{flex:1;position:relative}
+  .qtab input{position:absolute;opacity:0;width:0;height:0}
+  .qtab-inner{display:flex;flex-direction:column;align-items:center;padding:14px 10px;cursor:pointer;transition:all .15s;gap:3px;text-align:center}
+  .qtab input:checked~.qtab-inner{background:var(--accent);color:#fff}
+  .qtab-title{font-weight:700;font-size:14px}
+  .qtab-desc{font-size:11px;opacity:.75}
+  .qtab+.qtab{border-left:1.5px solid var(--border)}
+  .qtab input:checked~.qtab-inner .qtab-desc{opacity:.85}
+  /* Drop zone */
+  .drop-zone{border:2px dashed var(--border);border-radius:10px;padding:28px;text-align:center;cursor:pointer;transition:all .15s;background:var(--bg)}
+  .drop-zone:hover,.drop-zone.dragover{border-color:var(--accent);background:var(--al)}
+  .drop-zone input{display:none}
+  .drop-icon{font-size:28px;margin-bottom:6px}
+  .drop-text{font-size:14px;color:var(--muted)}.drop-text strong{color:var(--accent)}
+  .prog-wrap{margin-top:12px;display:none}.prog-wrap.show{display:block}
+  .prog-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+  .prog-fill{height:100%;background:var(--accent);border-radius:3px;transition:width .2s;width:0}
+  .prog-label{font-size:12px;color:var(--muted);margin-top:4px;text-align:center}
+  .photo-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:12px}
+  .photo-thumb{position:relative;aspect-ratio:1;border-radius:7px;overflow:hidden;background:var(--border)}
+  .photo-thumb img{width:100%;height:100%;object-fit:cover}
+  .remove-ph{position:absolute;top:3px;right:3px;width:20px;height:20px;background:rgba(0,0,0,.6);color:#fff;border:none;border-radius:50%;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center}
+  /* URL modal */
+  .url-box{background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;margin-top:6px}
+  .url-text{flex:1;font-size:13px;color:var(--muted);word-break:break-all;font-family:monospace}
+  /* Toast */
+  .toast{position:fixed;bottom:24px;right:24px;background:var(--text);color:#fff;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:600;z-index:999;opacity:0;transform:translateY(10px);transition:all .25s;max-width:320px}
+  .toast.show{opacity:1;transform:translateY(0)}
+  .err-msg{color:var(--danger);font-size:13px;margin-top:8px;text-align:center}
+  code{background:var(--al);padding:2px 6px;border-radius:4px;font-size:13px}
+  @media(max-width:700px){
+    .stats{grid-template-columns:1fr}
+    .form-row{grid-template-columns:1fr}
+    th:nth-child(3),td:nth-child(3){display:none}
+    main{padding:24px 16px}
+    .photo-grid{grid-template-columns:repeat(4,1fr)}
+    .quality-toggle{flex-direction:column}
+    .qtab+.qtab{border-left:none;border-top:1.5px solid var(--border)}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><div class="logo-icon">📷</div>mate wo mate</div>
+  <div class="hright">
+    <span class="user-email" id="userEmail"></span>
+    <span class="hbadge">管理画面</span>
+    <button class="btn btn-ghost btn-sm" id="logoutBtn" onclick="window._logout()" style="display:none">ログアウト</button>
+  </div>
+</header>
+
+<main id="mainContent" style="display:none">
+  <div class="stats">
+    <div class="stat-card"><div class="stat-label">総ギャラリー数</div><div class="stat-value" id="stTotal">—</div></div>
+    <div class="stat-card"><div class="stat-label">公開中</div><div class="stat-value" id="stActive">—</div></div>
+    <div class="stat-card"><div class="stat-label">期限切れ</div><div class="stat-value" id="stExpired">—</div></div>
+  </div>
+  <div class="sec-hdr">
+    <div class="sec-title">ギャラリー一覧</div>
+    <button class="btn btn-primary" onclick="window._openCreate()">＋ 新規作成</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>お客様</th><th>撮影日</th><th>写真数</th><th>ダウンロード期限</th><th>状態</th><th>操作</th></tr></thead>
+      <tbody id="tBody"></tbody>
+    </table>
+    <div id="emptyState" class="empty-state" style="display:none">
+      <div style="font-size:48px;margin-bottom:12px">🖼️</div>
+      <p>まだギャラリーがありません。「新規作成」から始めましょう。</p>
+    </div>
+  </div>
+</main>
+
+<!-- Login overlay -->
+<div class="overlay" id="loginOverlay">
+  <div class="overlay-card">
+    <div style="text-align:center;font-size:40px;margin-bottom:16px">📷</div>
+    <div class="overlay-title">mate wo mate</div>
+    <div class="overlay-sub">メールアドレスとパスワードでログインしてください</div>
+    <div class="fg"><label class="lbl">メールアドレス</label><input type="email" id="loginEmail" placeholder="studio@example.com" onkeydown="if(event.key==='Enter')window._login()"></div>
+    <div class="fg"><label class="lbl">パスワード</label><input type="password" id="loginPw" placeholder="••••••••" onkeydown="if(event.key==='Enter')window._login()"></div>
+    <div id="loginErr" class="err-msg"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:8px;justify-content:center" onclick="window._login()">ログイン</button>
+  </div>
+</div>
+
+<!-- Setup guide (shown when constants not configured) -->
+<div class="overlay" id="setupOverlay" style="display:none">
+  <div class="overlay-card" style="max-width:560px;max-height:90vh;overflow-y:auto">
+    <div style="text-align:center;font-size:40px;margin-bottom:16px">⚙️</div>
+    <div class="overlay-title">初期設定が必要です</div>
+    <div class="overlay-sub">admin.html と client.html 先頭の定数を書き換えてください。</div>
+    <div style="background:var(--al);border-radius:10px;padding:16px;font-size:13px;line-height:2">
+      <strong>① supabase.com でプロジェクト作成 → setup.sql を実行</strong><br>
+      <strong>② Authentication → Users → 管理者アカウントを作成</strong><br>
+      <strong>③ Cloudflare → R2 → バケット作成（<code>gallery-photos</code>）</strong><br>
+      　　→ Settings → Public Access をON → <code>r2.dev</code> URLをメモ<br>
+      　　→ Settings → CORS Policy を設定<br>
+      　　→ R2 API トークンを発行（Object Read & Write）<br>
+      <strong>④ Cloudflare → アカウントID をメモ</strong><br>
+      <strong>⑤ admin.html・client.html の定数を書き換え → Vercelにデプロイ</strong>
+    </div>
+  </div>
+</div>
+
+<!-- Create/Edit Modal -->
+<div class="modal-overlay" id="createModal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title" id="modalTitle">新規ギャラリー作成</div>
+      <button class="modal-close" onclick="window._closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editingId">
+      <div class="form-row">
+        <div class="fg"><label class="lbl">お客様名 *</label><input type="text" id="fName" placeholder="例：田中 花子 様"></div>
+        <div class="fg">
+          <label class="lbl">撮影種別</label>
+          <select id="fType">
+            <option>ペット</option><option>イベント撮影</option><option>七五三</option>
+            <option>成人式</option><option>家族写真</option><option>マタニティ</option>
+            <option>ニューボーン</option><option>バースデー</option><option>証明写真</option><option>その他</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="fg"><label class="lbl">撮影日 *</label><input type="date" id="fDate"></div>
+        <div class="fg"><label class="lbl">ダウンロード期限 *</label><input type="date" id="fExpiry"></div>
+      </div>
+      <div class="fg"><label class="lbl">お客様へのメッセージ（任意）</label><textarea id="fMsg" placeholder="例：撮影ありがとうございました。素敵なお写真が撮れました！"></textarea></div>
+
+      <!-- 画質設定 -->
+      <div class="fg">
+        <label class="lbl">写真の画質設定</label>
+        <div class="quality-toggle">
+          <label class="qtab">
+            <input type="radio" name="quality" value="compress" checked>
+            <div class="qtab-inner">
+              <div class="qtab-title">📦 圧縮して保存</div>
+              <div class="qtab-desc">1枚 約500KB ／ 容量節約</div>
+            </div>
+          </label>
+          <label class="qtab">
+            <input type="radio" name="quality" value="original">
+            <div class="qtab-inner">
+              <div class="qtab-title">✨ フル画質で保存</div>
+              <div class="qtab-desc">1枚 3〜4MB ／ 劣化なし</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="fg">
+        <label class="lbl">写真を追加 <span id="photoCountLbl" style="font-weight:400;color:var(--muted)"></span></label>
+        <div class="drop-zone" id="dropZone" onclick="document.getElementById('photoInput').click()">
+          <input type="file" id="photoInput" accept="image/*" multiple onchange="window._handleFiles(event)">
+          <div class="drop-icon">🖼️</div>
+          <div class="drop-text">クリックまたは<strong>ドラッグ＆ドロップ</strong>で写真を追加</div>
+          <div class="drop-text" style="font-size:12px;margin-top:4px">JPEG・PNG・WebP・HEIC対応 ／ 何枚でもOK</div>
+        </div>
+        <div class="prog-wrap" id="progWrap">
+          <div class="prog-bar"><div class="prog-fill" id="progFill"></div></div>
+          <div class="prog-label" id="progLabel"></div>
+        </div>
+        <div class="photo-grid" id="photoPreviews"></div>
+      </div>
+      <div class="form-footer">
+        <button class="btn btn-outline" onclick="window._closeModal()">キャンセル</button>
+        <button class="btn btn-primary" id="saveBtn" onclick="window._saveGallery()">保存する</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- URL Modal -->
+<div class="modal-overlay" id="urlModal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">納品URLをコピー</div>
+      <button class="modal-close" onclick="window._closeUrlModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:14px;color:var(--muted);margin-bottom:16px">以下のURLをお客様にお送りください。</p>
+      <div class="url-box">
+        <div class="url-text" id="urlDisplay"></div>
+        <button class="btn btn-copy btn-sm" onclick="window._copyUrl()">コピー</button>
+      </div>
+      <div class="form-footer" style="margin-top:16px"><button class="btn btn-primary" onclick="window._closeUrlModal()">閉じる</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import { AwsClient } from 'https://cdn.jsdelivr.net/npm/aws4fetch@1/dist/aws4fetch.esm.js';
+
+// ════════════════════════════════════════════════════════════
+// ▼ ここを書き換えてください
+const SUPABASE_URL    = 'https://gfywkysbinveawgpcbpg.supabase.co';
+const SUPABASE_KEY    = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdmeXdreXNiaW52ZWF3Z3BjYnBnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA2MzExMDMsImV4cCI6MjA5NjIwNzEwM30.Ac6V6STbVne5THn61peXW2rxgEMJY_C_OTw7CkvRdbE';
+const R2_ACCOUNT_ID   = 'a44ace0142cd6566c42825f559b1b8dd';
+const R2_ACCESS_KEY   = '2a095014027332b0153929f77029f694';
+const R2_SECRET_KEY   = '192e655ede3ef175d0f9ced0629a19d209aaa6708a69a80869758a8c8db4b343';
+const R2_BUCKET       = 'gallery-photos';
+const R2_PUBLIC_URL   = 'https://pub-2ff55170fd884835a135776e37447e74.r2.dev';
+// ════════════════════════════════════════════════════════════
+
+// Setup check
+if (SUPABASE_URL === 'YOUR_SUPABASE_URL') {
+  document.getElementById('loginOverlay').style.display = 'none';
+  document.getElementById('setupOverlay').style.display = 'flex';
+}
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let _r2 = null;
+function getR2() {
+  if (!_r2) _r2 = new AwsClient({ accessKeyId: R2_ACCESS_KEY, secretAccessKey: R2_SECRET_KEY, service: 's3', region: 'auto' });
+  return _r2;
+}
+
+// ─── R2 helpers ──────────────────────────────────────────────
+async function r2Put(path, blob, contentType) {
+  const url = `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET}/${path}`;
+  const res = await getR2().fetch(url, { method: 'PUT', headers: { 'Content-Type': contentType }, body: blob });
+  if (!res.ok) throw new Error(`R2 upload failed: ${res.status} ${await res.text()}`);
+}
+async function r2Del(paths) {
+  for (const p of paths) {
+    const url = `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET}/${p}`;
+    await getR2().fetch(url, { method: 'DELETE' });
+  }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────
+const genId  = () => crypto.randomUUID().replace(/-/g, '');
+const esc    = s  => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const fmtD   = d  => { if(!d)return'—'; const x=new Date(d); return `${x.getFullYear()}年${x.getMonth()+1}月${x.getDate()}日`; };
+const daysleft = d => { const n=Math.ceil((new Date(d)-Date.now())/86400000); return n<0?`${Math.abs(n)}日超過`:n===0?'本日期限':`残り${n}日`; };
+const getStatus = d => { const n=Math.ceil((new Date(d)-Date.now())/86400000); return n<0?'expired':n<=7?'soon':'active'; };
+
+// ─── Auth ─────────────────────────────────────────────────────
+async function login() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pw    = document.getElementById('loginPw').value;
+  document.getElementById('loginErr').textContent = '';
+  if (!email||!pw) { document.getElementById('loginErr').textContent='メールとパスワードを入力してください'; return; }
+  const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+  if (error) document.getElementById('loginErr').textContent = 'ログインに失敗しました: ' + error.message;
+}
+async function logout() { await sb.auth.signOut(); }
+
+sb.auth.onAuthStateChange((_, session) => {
+  const loggedIn = !!session?.user;
+  document.getElementById('loginOverlay').style.display  = loggedIn ? 'none' : 'flex';
+  document.getElementById('mainContent').style.display   = loggedIn ? ''     : 'none';
+  document.getElementById('logoutBtn').style.display     = loggedIn ? ''     : 'none';
+  document.getElementById('userEmail').textContent       = session?.user?.email || '';
+  if (loggedIn) renderTable();
+});
+
+// ─── Table ───────────────────────────────────────────────────
+async function renderTable() {
+  const { data: gs, error } = await sb.from('galleries').select('*').order('created_at', { ascending: false });
+  if (error) { showToast('読み込みエラー: '+error.message); return; }
+  let active=0, expired=0;
+  gs.forEach(g => getStatus(g.expires_at)==='expired' ? expired++ : active++);
+  document.getElementById('stTotal').textContent   = gs.length;
+  document.getElementById('stActive').textContent  = active;
+  document.getElementById('stExpired').textContent = expired;
+  const tbody = document.getElementById('tBody');
+  const empty = document.getElementById('emptyState');
+  if (!gs.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  tbody.innerHTML = gs.map(g => {
+    const s=getStatus(g.expires_at), bc=s==='active'?'ba':s==='soon'?'bs':'be', bt=s==='active'?'公開中':s==='soon'?'まもなく期限':'期限切れ';
+    const qual = g.quality==='original'?'<span style="font-size:11px;background:#E8F4FD;color:#1A5276;padding:1px 6px;border-radius:10px">フル画質</span>':'';
+    return `<tr>
+      <td><div class="cname">${esc(g.client_name)}</div><div class="stype">${esc(g.shoot_type||'')} ${qual}</div></td>
+      <td>${fmtD(g.shoot_date)}</td>
+      <td>📷 ${g.photo_count||0}枚</td>
+      <td><div>${fmtD(g.expires_at)}</div><div style="font-size:12px;color:var(--muted)">${daysleft(g.expires_at)}</div></td>
+      <td><span class="badge ${bc}">${bt}</span></td>
+      <td><div class="actions">
+        <button class="btn btn-copy btn-sm" onclick="window._showUrl('${g.id}')">URLコピー</button>
+        <button class="btn btn-outline btn-sm" onclick="window._openEdit('${g.id}')">編集</button>
+        <button class="btn btn-danger btn-sm" onclick="window._del('${g.id}','${esc(g.client_name)}')">削除</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── Modal ────────────────────────────────────────────────────
+let currentPhotos = [];
+
+function openCreate() {
+  currentPhotos = [];
+  document.getElementById('editingId').value = '';
+  document.getElementById('modalTitle').textContent = '新規ギャラリー作成';
+  document.getElementById('fName').value  = '';
+  document.getElementById('fType').value  = 'ペット';
+  document.getElementById('fDate').value  = '';
+  document.getElementById('fMsg').value   = '';
+  document.querySelector('input[name="quality"][value="compress"]').checked = true;
+  const exp = new Date(); exp.setDate(exp.getDate()+14);
+  document.getElementById('fExpiry').value = exp.toISOString().slice(0,10);
+  document.getElementById('photoPreviews').innerHTML = '';
+  document.getElementById('photoCountLbl').textContent = '';
+  hideProgress();
+  document.getElementById('createModal').classList.add('open');
+}
+
+async function openEdit(id) {
+  const { data:g } = await sb.from('galleries').select('*').eq('id',id).single();
+  const { data:photos } = await sb.from('photos').select('*').eq('gallery_id',id).order('sort_order');
+  if (!g) return;
+  currentPhotos = (photos||[]).map(p => ({
+    id: p.id, name: p.file_name, previewUrl: `${R2_PUBLIC_URL}/${p.storage_path}`,
+    storagePath: p.storage_path, contentType: p.content_type||'image/jpeg',
+    isNew: false, isDeleted: false, order: p.sort_order
+  }));
+  document.getElementById('editingId').value = id;
+  document.getElementById('modalTitle').textContent = 'ギャラリーを編集';
+  document.getElementById('fName').value   = g.client_name||'';
+  document.getElementById('fType').value   = g.shoot_type ||'ペット';
+  document.getElementById('fDate').value   = g.shoot_date ||'';
+  document.getElementById('fExpiry').value = g.expires_at ||'';
+  document.getElementById('fMsg').value    = g.message    ||'';
+  const qval = g.quality||'compress';
+  document.querySelector(`input[name="quality"][value="${qval}"]`).checked = true;
+  renderPreviews();
+  hideProgress();
+  document.getElementById('createModal').classList.add('open');
+}
+
+function closeModal() {
+  currentPhotos.filter(p=>p.isNew&&p.previewUrl&&p.previewUrl.startsWith('blob:')).forEach(p=>URL.revokeObjectURL(p.previewUrl));
+  currentPhotos = [];
+  document.getElementById('createModal').classList.remove('open');
+}
+
+// ─── Image processing ─────────────────────────────────────────
+function toJpeg(file, maxPx, q) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        let w=img.width, h=img.height;
+        if (w>maxPx||h>maxPx) { if(w>h){h=Math.round(h*maxPx/w);w=maxPx;}else{w=Math.round(w*maxPx/h);h=maxPx;} }
+        const c = document.createElement('canvas');
+        c.width=w; c.height=h;
+        c.getContext('2d').drawImage(img,0,0,w,h);
+        c.toBlob(blob=>resolve(blob), 'image/jpeg', q);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function processPhoto(file) {
+  const quality = document.querySelector('input[name="quality"]:checked')?.value || 'compress';
+  const isHEIC  = /\.hei[cf]$/i.test(file.name) || /image\/hei[cf]/.test(file.type);
+
+  if (quality === 'compress') {
+    const blob = await toJpeg(file, 1800, 0.82);
+    return { blob, name: file.name.replace(/\.[^/.]+$/, '.jpg'), contentType: 'image/jpeg' };
+  } else {
+    // フル画質：HEICはJPEG変換（互換性のため）、それ以外はそのまま
+    if (isHEIC) {
+      const blob = await toJpeg(file, 8000, 0.96);
+      return { blob, name: file.name.replace(/\.hei[cf]$/i, '.jpg'), contentType: 'image/jpeg' };
+    }
+    return { blob: file, name: file.name, contentType: file.type || 'image/jpeg' };
+  }
+}
+
+// ─── File handling ────────────────────────────────────────────
+function handleFiles(e) { processFiles(Array.from(e.target.files)); e.target.value=''; }
+
+async function processFiles(files) {
+  const imgs = files.filter(f => f.type.startsWith('image/') || /\.hei[cf]$/i.test(f.name));
+  if (!imgs.length) return;
+  const quality = document.querySelector('input[name="quality"]:checked')?.value || 'compress';
+  const label   = quality === 'compress' ? '圧縮中' : '読み込み中';
+  showProgress(); document.getElementById('saveBtn').disabled = true;
+  for (let i=0; i<imgs.length; i++) {
+    setProgress(i, imgs.length, `${label} ${i+1}/${imgs.length}枚…`);
+    const { blob, name, contentType } = await processPhoto(imgs[i]);
+    currentPhotos.push({ blob, name, contentType, previewUrl: URL.createObjectURL(blob), isNew: true, isDeleted: false });
+  }
+  setProgress(imgs.length, imgs.length, `${imgs.length}枚を追加しました`);
+  setTimeout(hideProgress, 1800);
+  document.getElementById('saveBtn').disabled = false;
+  renderPreviews();
+}
+
+function showProgress()  { document.getElementById('progWrap').classList.add('show'); }
+function hideProgress()  { document.getElementById('progWrap').classList.remove('show'); document.getElementById('progFill').style.width='0'; }
+function setProgress(n, total, txt) {
+  document.getElementById('progFill').style.width = `${Math.round(n/total*100)}%`;
+  document.getElementById('progLabel').textContent = txt;
+}
+
+function renderPreviews() {
+  const active = currentPhotos.filter(p=>!p.isDeleted);
+  document.getElementById('photoCountLbl').textContent = active.length ? `（現在 ${active.length}枚）` : '';
+  const show = active.slice(0,20), rest = active.length - show.length;
+  let html = show.map(p => {
+    const ri = currentPhotos.indexOf(p);
+    return `<div class="photo-thumb"><img src="${p.previewUrl}" loading="lazy"><button class="remove-ph" onclick="window._removePhoto(${ri})">✕</button></div>`;
+  }).join('');
+  if (rest>0) html += `<div class="photo-thumb" style="display:flex;align-items:center;justify-content:center;background:var(--al);font-size:13px;font-weight:600;color:var(--ad)">+${rest}枚</div>`;
+  document.getElementById('photoPreviews').innerHTML = html;
+}
+
+function removePhoto(i) {
+  const p = currentPhotos[i];
+  if (p.isNew && p.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(p.previewUrl);
+  if (p.isNew) currentPhotos.splice(i,1); else p.isDeleted = true;
+  renderPreviews();
+}
+
+// Drag & drop
+const dz = document.getElementById('dropZone');
+dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', ()=> dz.classList.remove('dragover'));
+dz.addEventListener('drop', e  => { e.preventDefault(); dz.classList.remove('dragover'); processFiles(Array.from(e.dataTransfer.files)); });
+
+// ─── Save ─────────────────────────────────────────────────────
+async function saveGallery() {
+  const clientName = document.getElementById('fName').value.trim();
+  const shootDate  = document.getElementById('fDate').value;
+  const expiresAt  = document.getElementById('fExpiry').value;
+  const quality    = document.querySelector('input[name="quality"]:checked')?.value || 'compress';
+  if (!clientName) { showToast('お客様名を入力してください'); return; }
+  if (!shootDate)  { showToast('撮影日を入力してください');   return; }
+  if (!expiresAt)  { showToast('期限を入力してください');     return; }
+
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    const editId = document.getElementById('editingId').value;
+    const id     = editId || genId();
+    const active = currentPhotos.filter(p=>!p.isDeleted);
+
+    // Delete removed existing photos from R2 + DB
+    const removed = currentPhotos.filter(p=>!p.isNew&&p.isDeleted&&p.storagePath);
+    if (removed.length) {
+      await r2Del(removed.map(p=>p.storagePath));
+      await sb.from('photos').delete().in('id', removed.map(p=>p.id));
+    }
+
+    // Upload new photos to R2
+    const existing = currentPhotos.filter(p=>!p.isNew&&!p.isDeleted);
+    let order = existing.length;
+    const newPhotos = currentPhotos.filter(p=>p.isNew&&!p.isDeleted);
+    showProgress();
+    for (let i=0; i<newPhotos.length; i++) {
+      setProgress(i, newPhotos.length, `アップロード中 ${i+1}/${newPhotos.length}枚…`);
+      const pid  = genId();
+      const ext  = newPhotos[i].name.split('.').pop() || 'jpg';
+      const path = `${id}/${pid}.${ext}`;
+      await r2Put(path, newPhotos[i].blob, newPhotos[i].contentType);
+      await sb.from('photos').upsert({ id: pid, gallery_id: id, storage_path: path, file_name: newPhotos[i].name, content_type: newPhotos[i].contentType, sort_order: order++ });
+    }
+    setProgress(newPhotos.length, newPhotos.length, '完了！');
+    setTimeout(hideProgress, 1000);
+
+    // Upsert gallery metadata
+    const { error: gErr } = await sb.from('galleries').upsert({
+      id, client_name: clientName,
+      shoot_type: document.getElementById('fType').value,
+      shoot_date: shootDate, expires_at: expiresAt,
+      message: document.getElementById('fMsg').value.trim(),
+      photo_count: active.length, quality,
+      updated_at: new Date().toISOString(),
+      ...(editId ? {} : { created_at: new Date().toISOString() })
+    });
+    if (gErr) throw gErr;
+
+    closeModal();
+    await renderTable();
+    showToast(editId ? '更新しました' : 'ギャラリーを作成しました！');
+    if (!editId) setTimeout(()=>showUrl(id), 600);
+  } catch(e) {
+    console.error(e);
+    showToast('保存に失敗しました: ' + e.message);
+    hideProgress();
+  } finally {
+    btn.disabled = false; btn.textContent = '保存する';
+  }
+}
+
+// ─── Delete ───────────────────────────────────────────────────
+async function delGallery(id, name) {
+  if (!confirm(`「${name}」のギャラリーを削除しますか？\n写真データも完全に削除されます。`)) return;
+  try {
+    const { data: photos } = await sb.from('photos').select('storage_path').eq('gallery_id', id);
+    if (photos?.length) await r2Del(photos.map(p=>p.storage_path));
+    await sb.from('galleries').delete().eq('id', id);
+    await renderTable();
+    showToast('削除しました');
+  } catch(e) { showToast('削除に失敗しました: '+e.message); }
+}
+
+// ─── URL ──────────────────────────────────────────────────────
+function showUrl(id) {
+  const url = location.href.replace(/admin\.html.*$/, '') + `client.html?gallery=${id}`;
+  document.getElementById('urlDisplay').textContent = url;
+  document.getElementById('urlModal').classList.add('open');
+}
+function closeUrlModal() { document.getElementById('urlModal').classList.remove('open'); }
+function copyUrl() { navigator.clipboard.writeText(document.getElementById('urlDisplay').textContent).then(()=>showToast('URLをコピーしました！')); }
+
+// ─── Toast ────────────────────────────────────────────────────
+let _tt;
+function showToast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(_tt); _tt=setTimeout(()=>t.classList.remove('show'),3000); }
+
+// ─── Close on overlay click ───────────────────────────────────
+['createModal','urlModal'].forEach(id=>{
+  document.getElementById(id).addEventListener('click', e => {
+    if (e.target === document.getElementById(id)) id==='createModal' ? closeModal() : closeUrlModal();
+  });
+});
+
+// ─── Window exports (for onclick attributes) ─────────────────
+window._login       = login;
+window._logout      = logout;
+window._openCreate  = openCreate;
+window._openEdit    = openEdit;
+window._closeModal  = closeModal;
+window._closeUrlModal = closeUrlModal;
+window._handleFiles = handleFiles;
+window._removePhoto = removePhoto;
+window._saveGallery = saveGallery;
+window._del         = delGallery;
+window._showUrl     = showUrl;
+window._copyUrl     = copyUrl;
+</script>
+</body>
+</html>
