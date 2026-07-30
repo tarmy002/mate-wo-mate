@@ -267,17 +267,12 @@
 <div class="toast" id="toast"></div>
 
 <script type="module">
-import { AwsClient } from 'https://cdn.jsdelivr.net/npm/aws4fetch@1/dist/aws4fetch.esm.js';
-
 // ════════════════════════════════════════════════════════════
 // ▼ ここを書き換えてください
 const SUPABASE_URL    = 'https://gfywkysbinveawgpcbpg.supabase.co';
 const SUPABASE_KEY    = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdmeXdreXNiaW52ZWF3Z3BjYnBnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA2MzExMDMsImV4cCI6MjA5NjIwNzEwM30.Ac6V6STbVne5THn61peXW2rxgEMJY_C_OTw7CkvRdbE';
-const R2_ACCOUNT_ID   = 'a44ace0142cd6566c42825f559b1b8dd';
-const R2_ACCESS_KEY   = '2a095014027332b0153929f77029f694';
-const R2_SECRET_KEY   = '192e655ede3ef175d0f9ced0629a19d209aaa6708a69a80869758a8c8db4b343';
-const R2_BUCKET       = 'gallery-photos';
-const R2_PUBLIC_URL   = 'https://pub-2ff55170fd884835a135776e37447e74.r2.dev';
+// 写真の読み書きはすべてこのWorker経由。R2のキーはWorker側のSecretに置く（ここには絶対に書かない）
+const R2_PUBLIC_URL   = 'https://gallery-photos-worker.htajp707.workers.dev';
 // ════════════════════════════════════════════════════════════
 
 // Setup check
@@ -287,22 +282,38 @@ if (SUPABASE_URL === 'YOUR_SUPABASE_URL') {
 }
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-let _r2 = null;
-function getR2() {
-  if (!_r2) _r2 = new AwsClient({ accessKeyId: R2_ACCESS_KEY, secretAccessKey: R2_SECRET_KEY, service: 's3', region: 'auto' });
-  return _r2;
+// ─── R2 helpers（すべてWorker経由・認証はSupabaseのログイントークン）───
+async function authHeader() {
+  const { data } = await sb.auth.getSession();
+  const token = data?.session?.access_token;
+  if (!token) throw new Error('ログインの有効期限が切れています。再ログインしてください');
+  return `Bearer ${token}`;
 }
-
-// ─── R2 helpers ──────────────────────────────────────────────
 async function r2Put(path, blob, contentType) {
-  const url = `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET}/${path}`;
-  const res = await getR2().fetch(url, { method: 'PUT', headers: { 'Content-Type': contentType }, body: blob });
+  const res = await fetch(`${R2_PUBLIC_URL}/${path}`, {
+    method : 'PUT',
+    headers: { 'Content-Type': contentType, 'Authorization': await authHeader() },
+    body   : blob
+  });
   if (!res.ok) throw new Error(`R2 upload failed: ${res.status} ${await res.text()}`);
 }
+// storage_path "{galleryId}/{photoId}.jpg" → "{galleryId}/{dir}/{photoId}.jpg"
+function variantPath(sp, dir) {
+  const i = sp.lastIndexOf('/');
+  const dirPart = i < 0 ? '' : sp.slice(0, i+1);
+  const file    = i < 0 ? sp : sp.slice(i+1);
+  const stem    = file.replace(/\.[^/.]+$/, '');
+  return `${dirPart}${dir}/${stem}.jpg`;
+}
 async function r2Del(paths) {
-  for (const p of paths) {
-    const url = `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET}/${p}`;
-    await getR2().fetch(url, { method: 'DELETE' });
+  const auth = await authHeader();
+  // 原寸だけでなく派生（thumb / web）も消す。無ければ404が返るだけなので無視してよい
+  const all = [];
+  for (const p of paths) all.push(p, variantPath(p,'thumb'), variantPath(p,'web'));
+  for (const p of all) {
+    try {
+      await fetch(`${R2_PUBLIC_URL}/${p}`, { method: 'DELETE', headers: { 'Authorization': auth } });
+    } catch(e) { console.warn('delete failed (無視):', p, e); }
   }
 }
 
@@ -389,7 +400,9 @@ async function openEdit(id) {
   const { data:photos } = await sb.from('photos').select('*').eq('gallery_id',id).order('sort_order');
   if (!g) return;
   currentPhotos = (photos||[]).map(p => ({
-    id: p.id, name: p.file_name, previewUrl: `${R2_PUBLIC_URL}/${p.storage_path}`,
+    id: p.id, name: p.file_name,
+    previewUrl: `${R2_PUBLIC_URL}/${isVideoType(p.content_type) ? p.storage_path : variantPath(p.storage_path,'thumb')}`,
+    fullUrl   : `${R2_PUBLIC_URL}/${p.storage_path}`,
     storagePath: p.storage_path, contentType: p.content_type||'image/jpeg',
     isNew: false, isDeleted: false, order: p.sort_order
   }));
@@ -436,6 +449,13 @@ function toJpeg(file, maxPx, q) {
 function isVideoFile(file) {
   return file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm)$/i.test(file.name);
 }
+function isVideoType(t) { return (t||'').startsWith('video/'); }
+// サムネイルが無い既存ギャラリー向けフォールバック（原寸へ戻す）
+function imgFallback(el) {
+  if (el.dataset.fellback) return;
+  el.dataset.fellback = '1';
+  if (el.dataset.full) el.src = el.dataset.full;
+}
 
 async function processPhoto(file) {
   const quality = document.querySelector('input[name="quality"]:checked')?.value || 'compress';
@@ -450,16 +470,21 @@ async function processPhoto(file) {
     return { blob: file, name: file.name, contentType: ct };
   }
 
+  // 一覧用サムネイル（長辺600px）は画質設定に関わらず必ず作る
+  const thumbBlob = await toJpeg(file, 600, 0.80);
+
   if (quality === 'compress') {
     const blob = await toJpeg(file, 1800, 0.82);
-    return { blob, name: file.name.replace(/\.[^/.]+$/, '.jpg'), contentType: 'image/jpeg' };
+    // 1800pxなら拡大表示もこれで足りるので中間サイズは作らない
+    return { blob, thumbBlob, webBlob: null, name: file.name.replace(/\.[^/.]+$/, '.jpg'), contentType: 'image/jpeg' };
   } else {
-    // フル画質：HEICはJPEG変換（互換性のため）、それ以外はそのまま
+    // フル画質：拡大表示用に中間サイズ（長辺1600px）も別途作る
+    const webBlob = await toJpeg(file, 1600, 0.86);
     if (isHEIC) {
       const blob = await toJpeg(file, 8000, 0.96);
-      return { blob, name: file.name.replace(/\.hei[cf]$/i, '.jpg'), contentType: 'image/jpeg' };
+      return { blob, thumbBlob, webBlob, name: file.name.replace(/\.hei[cf]$/i, '.jpg'), contentType: 'image/jpeg' };
     }
-    return { blob: file, name: file.name, contentType: file.type || 'image/jpeg' };
+    return { blob: file, thumbBlob, webBlob, name: file.name, contentType: file.type || 'image/jpeg' };
   }
 }
 
@@ -474,8 +499,9 @@ async function processFiles(files) {
   showProgress(); document.getElementById('saveBtn').disabled = true;
   for (let i=0; i<imgs.length; i++) {
     setProgress(i, imgs.length, `${label} ${i+1}/${imgs.length}枚…`);
-    const { blob, name, contentType } = await processPhoto(imgs[i]);
-    currentPhotos.push({ blob, name, contentType, previewUrl: URL.createObjectURL(blob), isNew: true, isDeleted: false });
+    const { blob, thumbBlob, webBlob, name, contentType } = await processPhoto(imgs[i]);
+    // 管理画面のプレビューもサムネイルを使う（メモリ節約・表示高速化）
+    currentPhotos.push({ blob, thumbBlob, webBlob, name, contentType, previewUrl: URL.createObjectURL(thumbBlob || blob), isNew: true, isDeleted: false });
   }
   setProgress(imgs.length, imgs.length, `${imgs.length}枚を追加しました`);
   setTimeout(hideProgress, 1800);
@@ -499,7 +525,7 @@ function renderPreviews() {
     const isV = (p.contentType||'').startsWith('video/');
     const media = isV
       ? `<video src="${p.previewUrl}#t=0.1" muted playsinline preload="metadata"></video><span class="thumb-video-badge">▶ 動画</span>`
-      : `<img src="${p.previewUrl}" loading="lazy">`;
+      : `<img src="${p.previewUrl}"${p.fullUrl?` data-full="${p.fullUrl}" onerror="window._imgFallback(this)"`:''} loading="lazy" decoding="async">`;
     return `<div class="photo-thumb">${media}<button class="remove-ph" onclick="window._removePhoto(${ri})">✕</button></div>`;
   }).join('');
   if (rest>0) html += `<div class="photo-thumb" style="display:flex;align-items:center;justify-content:center;background:var(--al);font-size:13px;font-weight:600;color:var(--ad)">+${rest}枚</div>`;
@@ -566,6 +592,15 @@ async function saveGallery() {
       const ext  = newPhotos[i].name.split('.').pop() || 'jpg';
       const path = `${id}/${pid}.${ext}`;
       await r2Put(path, newPhotos[i].blob, newPhotos[i].contentType);
+      // 派生ファイル（一覧用サムネイル／拡大用の中間サイズ）。失敗しても原寸があるので保存自体は止めない
+      if (newPhotos[i].thumbBlob) {
+        try { await r2Put(variantPath(path,'thumb'), newPhotos[i].thumbBlob, 'image/jpeg'); }
+        catch(e){ console.warn('thumb upload failed:', path, e); }
+      }
+      if (newPhotos[i].webBlob) {
+        try { await r2Put(variantPath(path,'web'), newPhotos[i].webBlob, 'image/jpeg'); }
+        catch(e){ console.warn('web upload failed:', path, e); }
+      }
       await sb.from('photos').upsert({ id: pid, gallery_id: id, storage_path: path, file_name: newPhotos[i].name, content_type: newPhotos[i].contentType, sort_order: order++ });
     }
     setProgress(newPhotos.length, newPhotos.length, '完了！');
@@ -629,6 +664,7 @@ window._saveGallery = saveGallery;
 window._del         = delGallery;
 window._showUrl     = showUrl;
 window._copyUrl     = copyUrl;
+window._imgFallback = imgFallback;
 </script>
 </body>
 </html>

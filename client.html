@@ -116,7 +116,7 @@
 <div class="lightbox" id="lightbox">
   <div class="lb-inner">
     <button class="lb-close" onclick="closeLB()">✕</button>
-    <img class="lb-img" id="lbImg" src="" alt="">
+    <img class="lb-img" id="lbImg" src="" alt="" onerror="imgFallback(this)">
     <video class="lb-video" id="lbVideo" controls playsinline preload="metadata" style="display:none"></video>
     <div class="lb-bar">
       <button class="lb-btn" onclick="lbMove(-1)">&#8592;</button>
@@ -169,6 +169,20 @@ function daysLeftText(d){
 }
 function statePage(icon,title,desc){ return `<div class="state-page"><div class="state-icon">${icon}</div><div class="state-title">${title}</div><div class="state-desc">${desc}</div></div>`; }
 function isVideo(p){ return (p.content_type||'').startsWith('video/'); }
+// storage_path "{galleryId}/{photoId}.jpg" → "{galleryId}/{dir}/{photoId}.jpg"
+function variantPath(sp, dir){
+  const i = sp.lastIndexOf('/');
+  const dirPart = i < 0 ? '' : sp.slice(0, i+1);
+  const file    = i < 0 ? sp : sp.slice(i+1);
+  const stem    = file.replace(/\.[^/.]+$/, '');
+  return `${dirPart}${dir}/${stem}.jpg`;
+}
+// サムネイル/中間版が無い既存ギャラリー向けフォールバック（原寸へ戻す）
+function imgFallback(el){
+  if (el.dataset.fellback) return;
+  el.dataset.fellback = '1';
+  if (el.dataset.full) el.src = el.dataset.full;
+}
 function extFromType(t){
   if(!t) return 'jpg';
   if(t.includes('quicktime')) return 'mov';
@@ -263,7 +277,12 @@ async function init() {
     </div>`;
 
   const {data:photos} = await sb.from('photos').select('*').eq('gallery_id',id).order('sort_order');
-  _photos = (photos||[]).map(p => ({...p, publicUrl:`${R2_PUBLIC_URL}/${p.storage_path}`}));
+  _photos = (photos||[]).map(p => ({
+    ...p,
+    publicUrl: `${R2_PUBLIC_URL}/${p.storage_path}`,                       // 原寸（ダウンロード用）
+    thumbUrl : `${R2_PUBLIC_URL}/${variantPath(p.storage_path,'thumb')}`,  // 一覧用 600px
+    webUrl   : `${R2_PUBLIC_URL}/${variantPath(p.storage_path,'web')}`     // 拡大用 1600px（originalギャラリーのみ）
+  }));
 
   const _nVideo = _photos.filter(isVideo).length;
   document.getElementById('totalCount').textContent =
@@ -296,7 +315,7 @@ function renderGrid() {
     <div class="photo-card${_selectMode?' selectable':''}${sel?' selected':''}" id="card-${i}" onclick="${_selectMode?`toggleSelect(${i})`:`openLB(${i})`}">
       ${isVideo(p)
         ? `<video src="${p.publicUrl}#t=0.1" muted playsinline preload="metadata"></video><div class="video-badge">▶ 動画</div>`
-        : `<img src="${p.publicUrl}" alt="${esc(p.file_name||'')}" loading="lazy">`}
+        : `<img src="${p.thumbUrl}" data-full="${p.publicUrl}" onerror="imgFallback(this)" alt="${esc(p.file_name||'')}" loading="lazy" decoding="async">`}
       <div class="overlay">
         ${_selectMode
           ? `<div class="check-circle" style="position:absolute;top:8px;left:8px">${sel?'✓':''}</div>`
@@ -519,7 +538,11 @@ function updateLB(){
   } else {
     vid.pause(); vid.removeAttribute('src'); vid.load();
     vid.style.display='none';
-    img.style.display=''; img.src=p.publicUrl;
+    img.style.display='';
+    // 原寸ギャラリーは中間サイズ(1600px)を表示。無ければ原寸へフォールバック
+    delete img.dataset.fellback;
+    img.dataset.full = p.publicUrl;
+    img.src = (_quality === 'original' && p.webUrl) ? p.webUrl : p.publicUrl;
   }
   document.getElementById('lbCounter').textContent = `${lbIdx+1} / ${_photos.length}`;
   document.getElementById('lbName').textContent    = p.file_name||'';
