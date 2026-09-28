@@ -289,13 +289,39 @@ async function authHeader() {
   if (!token) throw new Error('ログインの有効期限が切れています。再ログインしてください');
   return `Bearer ${token}`;
 }
+// 保存中はログイントークンを1回だけ取得して使い回す（毎回 getSession を呼ぶと並列時に待ちが発生するため）
+let _authCache = null;            // Promise<string>
+function cachedAuth() {
+  if (!_authCache) _authCache = authHeader().catch(e => { _authCache = null; throw e; });
+  return _authCache;
+}
+// トークン切れのときだけ更新（並列中に何度も更新しないよう、使ったトークンが最新のときだけ）
+async function renewAuth(used) {
+  if (await cachedAuth().catch(() => null) !== used) return;
+  _authCache = (async () => { try { await sb.auth.refreshSession(); } catch(e) {} return authHeader(); })()
+    .catch(e => { _authCache = null; throw e; });
+  await _authCache;
+}
 async function r2Put(path, blob, contentType) {
-  const res = await fetch(`${R2_PUBLIC_URL}/${path}`, {
-    method : 'PUT',
-    headers: { 'Content-Type': contentType, 'Authorization': await authHeader() },
-    body   : blob
-  });
-  if (!res.ok) throw new Error(`R2 upload failed: ${res.status} ${await res.text()}`);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const auth = await cachedAuth();
+    let res;
+    try {
+      res = await fetch(`${R2_PUBLIC_URL}/${path}`, {
+        method : 'PUT',
+        headers: { 'Content-Type': contentType, 'Authorization': auth },
+        body   : blob
+      });
+    } catch (e) {
+      if (attempt === 2) throw e;            // 通信エラーは少し待って再試行
+      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+      continue;
+    }
+    if (res.ok) return;
+    if (res.status === 401 && attempt < 2) { await renewAuth(auth); continue; }   // トークン切れ → 更新して再試行
+    if (res.status >= 500 && attempt < 2) { await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue; }
+    throw new Error(`R2 upload failed: ${res.status} ${await res.text()}`);
+  }
 }
 // storage_path "{galleryId}/{photoId}.jpg" → "{galleryId}/{dir}/{photoId}.jpg"
 function variantPath(sp, dir) {
@@ -583,26 +609,32 @@ async function saveGallery() {
 
     // ③ 新しい写真をR2にアップロードしてDBに登録
     const existing = currentPhotos.filter(p=>!p.isNew&&!p.isDeleted);
-    let order = existing.length;
+    const baseOrder = existing.length;
     const newPhotos = currentPhotos.filter(p=>p.isNew&&!p.isDeleted);
     showProgress();
-    for (let i=0; i<newPhotos.length; i++) {
-      setProgress(i, newPhotos.length, `アップロード中 ${i+1}/${newPhotos.length}枚…`);
+    _authCache = null;
+    // 3枚ずつ並行してアップロード（並び順は選んだ順のまま＝sort_orderを先に決めておく）
+    const CONCURRENCY = 3;
+    let next = 0, done = 0;
+    setProgress(0, newPhotos.length, `アップロード中 0/${newPhotos.length}枚…`);
+    const uploadOne = async (i) => {
+      const ph   = newPhotos[i];
       const pid  = genId();
-      const ext  = newPhotos[i].name.split('.').pop() || 'jpg';
+      const ext  = ph.name.split('.').pop() || 'jpg';
       const path = `${id}/${pid}.${ext}`;
-      await r2Put(path, newPhotos[i].blob, newPhotos[i].contentType);
+      await r2Put(path, ph.blob, ph.contentType);
       // 派生ファイル（一覧用サムネイル／拡大用の中間サイズ）。失敗しても原寸があるので保存自体は止めない
-      if (newPhotos[i].thumbBlob) {
-        try { await r2Put(variantPath(path,'thumb'), newPhotos[i].thumbBlob, 'image/jpeg'); }
-        catch(e){ console.warn('thumb upload failed:', path, e); }
-      }
-      if (newPhotos[i].webBlob) {
-        try { await r2Put(variantPath(path,'web'), newPhotos[i].webBlob, 'image/jpeg'); }
-        catch(e){ console.warn('web upload failed:', path, e); }
-      }
-      await sb.from('photos').upsert({ id: pid, gallery_id: id, storage_path: path, file_name: newPhotos[i].name, content_type: newPhotos[i].contentType, sort_order: order++ });
-    }
+      const extra = [];
+      if (ph.thumbBlob) extra.push(r2Put(variantPath(path,'thumb'), ph.thumbBlob, 'image/jpeg').catch(e=>console.warn('thumb upload failed:', path, e)));
+      if (ph.webBlob)   extra.push(r2Put(variantPath(path,'web'),   ph.webBlob,   'image/jpeg').catch(e=>console.warn('web upload failed:', path, e)));
+      await Promise.all(extra);
+      const { error: pErr } = await sb.from('photos').upsert({ id: pid, gallery_id: id, storage_path: path, file_name: ph.name, content_type: ph.contentType, sort_order: baseOrder + i });
+      if (pErr) throw pErr;
+      done++;
+      setProgress(done, newPhotos.length, `アップロード中 ${done}/${newPhotos.length}枚…`);
+    };
+    const worker = async () => { while (next < newPhotos.length) { const i = next++; await uploadOne(i); } };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, newPhotos.length) }, worker));
     setProgress(newPhotos.length, newPhotos.length, '完了！');
     setTimeout(hideProgress, 1000);
 
