@@ -131,7 +131,10 @@
   </div>
   <div class="sec-hdr">
     <div class="sec-title">ギャラリー一覧</div>
-    <button class="btn btn-primary" onclick="window._openCreate()">＋ 新規作成</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-danger" id="bulkDelBtn" style="display:none" onclick="window._delExpired()">期限切れをまとめて削除（<span id="bulkDelN">0</span>件）</button>
+      <button class="btn btn-primary" onclick="window._openCreate()">＋ 新規作成</button>
+    </div>
   </div>
   <div class="table-wrap">
     <table>
@@ -331,16 +334,29 @@ function variantPath(sp, dir) {
   const stem    = file.replace(/\.[^/.]+$/, '');
   return `${dirPart}${dir}/${stem}.jpg`;
 }
-async function r2Del(paths) {
-  const auth = await authHeader();
+const R2_DEL_CONCURRENCY = 10;
+async function r2Del(paths, onProgress) {
   // 原寸だけでなく派生（thumb / web）も消す。無ければ404が返るだけなので無視してよい
   const all = [];
   for (const p of paths) all.push(p, variantPath(p,'thumb'), variantPath(p,'web'));
-  for (const p of all) {
-    try {
-      await fetch(`${R2_PUBLIC_URL}/${p}`, { method: 'DELETE', headers: { 'Authorization': auth } });
-    } catch(e) { console.warn('delete failed (無視):', p, e); }
-  }
+  // 1件ずつ順番に消すと遅いので、10件ずつ並列で消す
+  let next = 0, done = 0;
+  const worker = async () => {
+    while (next < all.length) {
+      const p = all[next++];
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const auth = await cachedAuth();
+        try {
+          const res = await fetch(`${R2_PUBLIC_URL}/${p}`, { method: 'DELETE', headers: { 'Authorization': auth } });
+          if (res.status === 401 && attempt === 0) { await renewAuth(auth); continue; }
+        } catch(e) { console.warn('delete failed (無視):', p, e); }
+        break;
+      }
+      done++;
+      if (onProgress) onProgress(done, all.length);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(R2_DEL_CONCURRENCY, all.length) }, worker));
 }
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -379,6 +395,8 @@ async function renderTable() {
   document.getElementById('stTotal').textContent   = gs.length;
   document.getElementById('stActive').textContent  = active;
   document.getElementById('stExpired').textContent = expired;
+  document.getElementById('bulkDelN').textContent = expired;
+  document.getElementById('bulkDelBtn').style.display = expired ? '' : 'none';
   const tbody = document.getElementById('tBody');
   const empty = document.getElementById('emptyState');
   if (!gs.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
@@ -655,12 +673,55 @@ async function saveGallery() {
 async function delGallery(id, name) {
   if (!confirm(`「${name}」のギャラリーを削除しますか？\n写真データも完全に削除されます。`)) return;
   try {
+    _authCache = null;
     const { data: photos } = await sb.from('photos').select('storage_path').eq('gallery_id', id);
-    if (photos?.length) await r2Del(photos.map(p=>p.storage_path));
+    if (photos?.length) {
+      showToast(`削除中… 0/${photos.length}枚`);
+      await r2Del(photos.map(p=>p.storage_path), (d, t) => {
+        if (d % 15 === 0 || d === t) showToast(`削除中… ${Math.floor(d/3)}/${photos.length}枚`);
+      });
+    }
     await sb.from('galleries').delete().eq('id', id);
     await renderTable();
     showToast('削除しました');
   } catch(e) { showToast('削除に失敗しました: '+e.message); }
+}
+
+// 期限切れのギャラリーをまとめて削除
+async function delExpired() {
+  const { data: gs, error } = await sb.from('galleries').select('id, client_name, expires_at');
+  if (error) { showToast('読み込みエラー: '+error.message); return; }
+  const targets = gs.filter(g => getStatus(g.expires_at) === 'expired');
+  if (!targets.length) { showToast('期限切れのギャラリーはありません'); return; }
+  const names = targets.slice(0, 10).map(g => `・${g.client_name}（${fmtD(g.expires_at)}まで）`).join('\n')
+              + (targets.length > 10 ? `\nほか${targets.length - 10}件` : '');
+  if (!confirm(`期限切れのギャラリー ${targets.length}件を削除しますか？\n写真データも完全に削除されます。\n\n${names}`)) return;
+  const btn = document.getElementById('bulkDelBtn');
+  btn.disabled = true;
+  let ok = 0, ng = 0;
+  try {
+    _authCache = null;
+    for (let i = 0; i < targets.length; i++) {
+      const g = targets[i];
+      const head = `期限切れを削除中… ${i+1}/${targets.length}件目`;
+      showToast(head);
+      try {
+        const { data: photos } = await sb.from('photos').select('storage_path').eq('gallery_id', g.id);
+        if (photos?.length) {
+          await r2Del(photos.map(p=>p.storage_path), (d, t) => {
+            if (d % 15 === 0 || d === t) showToast(`${head}（${Math.floor(d/3)}/${photos.length}枚）`);
+          });
+        }
+        const { error: dErr } = await sb.from('galleries').delete().eq('id', g.id);
+        if (dErr) throw dErr;
+        ok++;
+      } catch(e) { ng++; console.warn('bulk delete failed:', g.client_name, e); }
+    }
+  } finally {
+    btn.disabled = false;
+    await renderTable();
+    showToast(ng ? `${ok}件を削除しました（${ng}件は失敗。もう一度押してください）` : `${ok}件を削除しました`);
+  }
 }
 
 // ─── URL ──────────────────────────────────────────────────────
@@ -694,6 +755,7 @@ window._handleFiles = handleFiles;
 window._removePhoto = removePhoto;
 window._saveGallery = saveGallery;
 window._del         = delGallery;
+window._delExpired  = delExpired;
 window._showUrl     = showUrl;
 window._copyUrl     = copyUrl;
 window._imgFallback = imgFallback;
