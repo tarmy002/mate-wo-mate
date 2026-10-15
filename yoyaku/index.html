@@ -121,6 +121,20 @@ h1{font-size:24px;line-height:1.45;margin-top:10px}
 @keyframes sk{to{background-position:-200% 0}}
 footer{text-align:center;font-size:11.5px;color:var(--mute);padding:28px 16px 110px}
 footer a{color:var(--mute)}
+.radios{display:flex;gap:8px}
+.radios label{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;border:1.5px solid var(--line);border-radius:10px;padding:10px;font-weight:500;font-size:15px;cursor:pointer;margin:0}
+.radios input{accent-color:var(--accent);width:18px;height:18px}
+.radios label:has(input:checked){border-color:var(--accent);background:var(--accent-s)}
+.field.bad .radios label{border-color:var(--err)}
+.list-head{padding:22px 16px 4px}
+.list-head h1{font-size:22px;margin-top:0}
+.ev{display:block;margin:14px 16px;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;text-decoration:none;color:inherit}
+.ev img{width:100%;aspect-ratio:16/9;object-fit:cover}
+.ev .b{padding:12px 14px 14px}
+.ev h2{font-size:17px;line-height:1.5}
+.ev p{font-size:13px;color:var(--mute)}
+.ev .go{display:inline-block;margin-top:8px;font-size:13px;font-weight:700;color:#fff;background:var(--orange);border-radius:8px;padding:4px 12px}
+.ev .go.off{background:#aaa}
 .demo{background:#fff6d6;color:#7a5b00;font-size:12px;text-align:center;padding:6px}
 @media (min-width:600px){
   body{font-size:15.5px}
@@ -181,6 +195,7 @@ function demoApi(method, p) {
     slots.push({ start: f(t), end: f(t + 20) });
   }
   const mk = d => ({ date: d, slots: slots.map(s => ({ ...s, remain: demoBooked[d + ' ' + s.start] ? 0 : 1, closed: false })) });
+  if (method === 'GET' && p.action === 'list') return Promise.resolve({ ok: true, events: [{ id: 'demo', title: 'ワーゲンバス撮影会', dates: ['2027-01-24'], start: '10:00', end: '16:00', venue: '1HOTEL', price: '10,000円（税込）', hero: 'img/demo_TAR09810.jpg', status: 'open', free: 12 }] });
   if (method === 'GET' && p.action === 'event') {
     return Promise.resolve({ ok: true, status: 'open', event: {
       id: 'demo', title: 'ワーゲンバス撮影会', subtitle: '1組ずつ貸切で撮る、1日だけの撮影会',
@@ -216,14 +231,35 @@ async function load() {
   if (DEMO) $('#demo').hidden = false;
   const cancelToken = params.get('cancel');
   if (cancelToken) return loadCancel(cancelToken);
-  const id = params.get('e') || (DEMO ? 'demo' : '');
-  if (!id) return showState('ページが見つかりません', '<p>URLをもう一度ご確認ください。</p>');
+  let id = params.get('e');
+  if (!id) {
+    // 一覧：受付中のイベントが1つならそのまま表示、2つ以上なら一覧
+    let ls;
+    try { ls = await api('GET', { action: 'list' }); }
+    catch (e) { return showState('読み込めませんでした', '<p>通信状況をご確認のうえ、ページを再読み込みしてください。</p>'); }
+    const evs = (ls && ls.events) || [];
+    if (evs.length === 1) id = evs[0].id;
+    else return renderList(evs);
+  }
   let res;
   try { res = await api('GET', { action: 'event', id }); }
   catch (e) { return showState('読み込めませんでした', '<p>通信状況をご確認のうえ、ページを再読み込みしてください。</p>'); }
   if (!res.ok) return showState('このイベントは公開されていません', '<p>URLをご確認いただくか、公式LINEからお問い合わせください。</p>');
   state.data = res;
   render();
+}
+
+function renderList(evs) {
+  if (!evs.length) return showState('いま受付中の撮影会はありません', '<p>次回のお知らせは、Instagramと公式LINEでお届けします。</p>');
+  document.title = '撮影会のご予約｜mate wo mate';
+  const card = e => {
+    const when = e.dates.length === 1 ? dateJa(e.dates[0]) : dateJa(e.dates[0]) + '〜' + dateJa(e.dates[e.dates.length - 1]);
+    const lab = e.status === 'before' ? ['受付前', true] : e.status === 'full' ? ['満席', true] : ['空き ' + e.free + '枠・予約する', false];
+    return `<a class="ev" href="?e=${encodeURIComponent(e.id)}">${e.hero ? `<img src="${esc(e.hero)}" alt="" loading="lazy">` : ''}
+      <div class="b"><h2 class="serif">${esc(e.title)}</h2><p>${esc(when)} ${esc(e.start)}〜${esc(e.end)}${e.venue ? '｜' + esc(e.venue) : ''}${e.price ? '｜' + esc(e.price) : ''}</p>
+      <span class="go${lab[1] ? ' off' : ''}">${lab[0]}</span></div></a>`;
+  };
+  $('#app').innerHTML = `<div class="list-head"><h1 class="serif">撮影会のご予約</h1><p class="sub">ご希望の撮影会を選んでください</p></div>${evs.map(card).join('')}`;
 }
 
 function render() {
@@ -335,7 +371,7 @@ function renderForm() {
       <div class="field" data-f="tel"><label>電話番号<span class="req">必須</span></label><input type="tel" name="tel" autocomplete="tel" inputmode="tel" placeholder="例：090-1234-5678"><p class="help">当日の雨天のご連絡などに使います</p><p class="msg">電話番号をご確認ください</p></div>
       ${dogFields}
       ${state.dogs < ev.maxDogs ? `<button type="button" class="adddog" id="adddog">＋ ${state.dogs + 1}頭目を追加する（${ev.maxDogs}頭まで）</button>` : ''}
-      ${ev.askStay ? `<div class="field"><label>1HOTELにご宿泊ですか<span class="opt">任意</span></label><input type="text" name="stay" placeholder="例：1/23〜24 宿泊"><p class="help">ご宿泊の方は、宿泊日を入れてください</p></div>` : ''}
+      ${ev.askStay ? `<div class="field" data-f="stay"><label>1HOTELにご宿泊ですか<span class="req">必須</span></label><div class="radios"><label><input type="radio" name="stay" value="はい">はい</label><label><input type="radio" name="stay" value="いいえ">いいえ</label></div><p class="msg">どちらかを選んでください</p></div>` : ''}
       ${ev.extraQ ? `<div class="field"><label>${esc(ev.extraQ)}<span class="opt">任意</span></label><input type="text" name="extra"></div>` : ''}
       <div class="field"><label>ご要望・気になること<span class="opt">任意</span></label><textarea name="memo" placeholder="例：音に驚きやすい子です"></textarea></div>
       <label class="check" data-f="vaccine"><input type="checkbox" name="vaccine"><span>混合ワクチンと狂犬病予防接種を済ませています</span></label>
@@ -348,13 +384,16 @@ function renderForm() {
   $('#change').onclick = () => $('#book').scrollIntoView({ behavior: 'smooth' });
   const add = $('#adddog'); if (add) add.onclick = () => { state.dogs++; renderForm(); };
   $('#form').onsubmit = submit;
-  f.querySelectorAll('input,textarea').forEach(i => i.addEventListener('input', () => i.closest('.field,.check')?.classList.remove('bad')));
+  f.querySelectorAll('input,textarea').forEach(i => i.addEventListener(i.type === 'radio' ? 'change' : 'input', () => i.closest('.field,.check')?.classList.remove('bad')));
 }
 
 function collect(raw) {
   const form = $('#form'); if (!form) return null;
   const v = {};
-  form.querySelectorAll('input,textarea').forEach(i => { v[i.name] = i.type === 'checkbox' ? i.checked : i.value; });
+  form.querySelectorAll('input,textarea').forEach(i => {
+    if (i.type === 'radio') { if (!(i.name in v)) v[i.name] = ''; if (i.checked) v[i.name] = i.value; return; }
+    v[i.name] = i.type === 'checkbox' ? i.checked : i.value;
+  });
   return v;
 }
 function restore(v) {
@@ -374,6 +413,7 @@ async function submit(e) {
   if (!v.dog0.trim()) bad.push('dog0');
   if (!v.vaccine) bad.push('vaccine');
   if (!v.agree) bad.push('agree');
+  if (ev.askStay && !v.stay) bad.push('stay');
   document.querySelectorAll('[data-f]').forEach(el => el.classList.toggle('bad', bad.includes(el.dataset.f)));
   const fe = $('#formerr');
   if (bad.length) {
@@ -449,7 +489,7 @@ async function loadCancel(token) {
       <div><span>お名前</span>${esc(b.name)} 様</div>
       <div><span>わんちゃん</span>${b.dogs.map(esc).join('／')}</div></div>`;
   if (b.status !== '予約') return showState('キャンセル済みです', sum + '<p>このご予約は、すでにキャンセルされています。</p>');
-  if (!b.canCancel) return showState('ページからはキャンセルできません', sum + '<p>お手数ですが、公式LINEからご連絡ください。</p>');
+  if (!b.canCancel) return showState('ページからはキャンセルできません', sum + '<p>キャンセルの受付期限を過ぎています。お手数ですが、公式LINEからご連絡ください。</p>');
   showState('ご予約のキャンセル', sum + '<p>このご予約をキャンセルしますか？</p><button class="btn-danger" id="doCancel">キャンセルする</button>');
   $('#doCancel').onclick = async () => {
     const btn = $('#doCancel'); btn.disabled = true; btn.textContent = '処理しています…';
