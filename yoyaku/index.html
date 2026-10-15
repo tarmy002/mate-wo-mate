@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ご予約｜mate wo mate</title>
 <meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
 <meta property="og:title" content="ご予約｜mate wo mate">
 <meta property="og:description" content="犬の写真スタジオ mate wo mate の撮影会のご予約ページです。">
 <link rel="icon" href="img/logo.png">
@@ -162,6 +163,8 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbxtEU6zIu0g2NHjjPbQAI6Z
 /* ===================================================== */
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// URLは http(s) か、同じサイト内の相対パスだけを通す（javascript: などを防ぐ）
+const safeUrl = u => { u = String(u || '').trim(); return /^https?:\/\//i.test(u) || /^[\w\-./]+$/.test(u) && !/^\/\//.test(u) ? u : ''; };
 const lines = s => String(s || '').split(/\r?\n/).map(x => x.replace(/^[・\-\s]+/, '').trim()).filter(Boolean);
 const params = new URLSearchParams(location.search);
 const DEMO = !API_URL || params.has('demo');
@@ -255,7 +258,7 @@ function renderList(evs) {
   const card = e => {
     const when = e.dates.length === 1 ? dateJa(e.dates[0]) : dateJa(e.dates[0]) + '〜' + dateJa(e.dates[e.dates.length - 1]);
     const lab = e.status === 'before' ? ['受付前', true] : e.status === 'full' ? ['満席', true] : ['空き ' + e.free + '枠・予約する', false];
-    return `<a class="ev" href="?e=${encodeURIComponent(e.id)}">${e.hero ? `<img src="${esc(e.hero)}" alt="" loading="lazy">` : ''}
+    return `<a class="ev" href="?e=${encodeURIComponent(e.id)}">${safeUrl(e.hero) ? `<img src="${esc(safeUrl(e.hero))}" alt="" loading="lazy">` : ''}
       <div class="b"><h2 class="serif">${esc(e.title)}</h2><p>${esc(when)} ${esc(e.start)}〜${esc(e.end)}${e.venue ? '｜' + esc(e.venue) : ''}${e.price ? '｜' + esc(e.price) : ''}</p>
       <span class="go${lab[1] ? ' off' : ''}">${lab[0]}</span></div></a>`;
   };
@@ -266,20 +269,20 @@ function render() {
   const { event: ev, days, status } = state.data;
   if (ev.color) document.documentElement.style.setProperty('--accent', ev.color);
   document.title = ev.title + '｜ご予約｜mate wo mate';
-  $('#partner').innerHTML = (ev.partnerName ? `<span>${esc(ev.partnerName)}</span>` : '') + (ev.partnerLogo ? `<img src="${esc(ev.partnerLogo)}" alt="">` : '');
+  $('#partner').innerHTML = (ev.partnerName ? `<span>${esc(ev.partnerName)}</span>` : '') + (safeUrl(ev.partnerLogo) ? `<img src="${esc(safeUrl(ev.partnerLogo))}" alt="">` : '');
 
   const dateLine = ev.dates.map(d => dateJa(d)).join('・');
   const time = ev.start + '〜' + ev.end;
   const kicker = ev.dates.length === 1 ? dateJa(ev.dates[0]) + ' 開催' : ev.dates.length + '日間 開催';
-  const photos = (ev.photos || []).filter(Boolean);
+  const photos = (ev.photos || []).map(safeUrl).filter(Boolean);
   const perks = lines(ev.perks), notes = lines(ev.notes);
 
   $('#app').innerHTML = `
-    <section class="hero">${ev.hero ? `<img src="${esc(ev.hero)}" alt="">` : ''}</section>
+    <section class="hero">${safeUrl(ev.hero) ? `<img src="${esc(safeUrl(ev.hero))}" alt="">` : ''}</section>
     <div class="hero-txt"><span class="kicker">${esc(kicker)}</span><h1 class="serif">${esc(ev.title)}</h1>${ev.subtitle ? `<p class="sub">${esc(ev.subtitle)}</p>` : ''}</div>
     <dl class="facts">
       <div><dt>日時</dt><dd><b>${esc(dateLine)}</b><small>${esc(time)}（1組${ev.slotMin}分・ご予約制）</small></dd></div>
-      ${ev.venue ? `<div><dt>会場</dt><dd>${esc(ev.venue)}${ev.address ? `<small>${esc(ev.address)}${ev.mapUrl ? ` ／ <a href="${esc(ev.mapUrl)}" target="_blank" rel="noopener">地図</a>` : ''}</small>` : ''}</dd></div>` : ''}
+      ${ev.venue ? `<div><dt>会場</dt><dd>${esc(ev.venue)}${ev.address ? `<small>${esc(ev.address)}${safeUrl(ev.mapUrl) ? ` ／ <a href="${esc(safeUrl(ev.mapUrl))}" target="_blank" rel="noopener">地図</a>` : ''}</small>` : ''}</dd></div>` : ''}
       ${ev.price ? `<div><dt>料金</dt><dd><b>${esc(ev.price)}</b>${ev.priceNote ? `<small>${esc(ev.priceNote)}</small>` : ''}</dd></div>` : ''}
     </dl>
     ${ev.lead ? `<div class="block text">${lines(ev.lead).map(l => `<p>${esc(l)}</p>`).join('')}</div>` : ''}
@@ -330,7 +333,7 @@ function renderDays() {
     const lab = s.closed ? '受付終了' : s.remain <= 0 ? '満席' : slotCap() > 1 && s.remain === 1 ? '残り1組' : '空きあり';
     const few = !off && slotCap() > 1 && s.remain === 1;
     const pressed = state.slot && state.slot.date === day.date && state.slot.start === s.start;
-    return `<button class="slot${few ? ' few' : ''}" data-start="${s.start}" ${off ? 'disabled' : ''} aria-pressed="${!!pressed}">${s.start}<small>${lab}</small></button>`;
+    return `<button class="slot${few ? ' few' : ''}" data-start="${esc(s.start)}" ${off ? 'disabled' : ''} aria-pressed="${!!pressed}">${esc(s.start)}<small>${lab}</small></button>`;
   }).join('');
   const anyFree = day.slots.some(s => !s.closed && s.remain > 0);
   bb.innerHTML = `${tabs}
@@ -363,7 +366,7 @@ function renderForm() {
   const notes = window.__notes || [];
   f.innerHTML = `
     <h2 class="serif">ご予約の内容</h2>
-    <div class="picked"><b>${esc(dateJa(state.slot.date))} ${state.slot.start}〜${state.slot.end}</b><button type="button" id="change">時間を変える</button></div>
+    <div class="picked"><b>${esc(dateJa(state.slot.date))} ${esc(state.slot.start)}〜${esc(state.slot.end)}</b><button type="button" id="change">時間を変える</button></div>
     <form id="form" novalidate>
       <div class="hp" aria-hidden="true"><label>website<input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
       <div class="field" data-f="name"><label>お名前<span class="req">必須</span></label><input type="text" name="name" autocomplete="name" placeholder="例：山田 花子"><p class="msg">お名前を入れてください</p></div>
@@ -437,6 +440,7 @@ async function submit(e) {
     full: 'タッチの差で、この時間は埋まってしまいました。ほかの時間をお選びください。',
     closed: 'この時間の受付は終了しました。ほかの時間をお選びください。',
     dup: 'この時間は、同じメールアドレスですでにご予約いただいています。',
+    limit: 'お一人さまがご予約できるのは2枠までです。ほかのご予約の変更は公式LINEからご連絡ください。',
     invalid: '入力内容をご確認ください。', busy: '混み合っています。少し待ってからもう一度お試しください。',
     network: '通信できませんでした。電波の良いところでもう一度お試しください。',
   }[res.code] || 'ご予約できませんでした。お手数ですが、公式LINEからお問い合わせください。';
@@ -464,7 +468,7 @@ function done(r, v, dogs) {
   const ev = state.data.event;
   showState('ご予約ありがとうございます', `
     <div class="summary">
-      <div><span>日時</span><b>${esc(dateJa(r.date, true))} ${r.start}〜${r.end}</b></div>
+      <div><span>日時</span><b>${esc(dateJa(r.date, true))} ${esc(r.start)}〜${esc(r.end)}</b></div>
       ${ev.venue ? `<div><span>会場</span>${esc(ev.venue)}</div>` : ''}
       <div><span>お名前</span>${esc(v.name)} 様</div>
       <div><span>わんちゃん</span>${dogs.map(esc).join('／')}</div>
@@ -472,7 +476,7 @@ function done(r, v, dogs) {
     </div>
     <p>確認メールを <b>${esc(v.email)}</b> にお送りしました。<br>届かない場合は、迷惑メールのフォルダもご確認ください。</p>
     <p style="margin-top:14px"><a class="btn2" href="${gcalLink(ev, r)}" target="_blank" rel="noopener">カレンダーに追加する</a></p>
-    ${ev.lineUrl ? `<p style="margin-top:14px;font-size:13px">ご不明な点は<a href="${esc(ev.lineUrl)}" target="_blank" rel="noopener">公式LINE</a>からどうぞ。</p>` : ''}`,
+    ${safeUrl(ev.lineUrl) ? `<p style="margin-top:14px;font-size:13px">ご不明な点は<a href="${esc(safeUrl(ev.lineUrl))}" target="_blank" rel="noopener">公式LINE</a>からどうぞ。</p>` : ''}`,
     'done');
   $('.state').insertAdjacentHTML('afterbegin', '<div class="ok">✓</div>');
 }
@@ -485,7 +489,7 @@ async function loadCancel(token) {
   const b = r.booking;
   const sum = `<div class="summary">
       <div><span>イベント</span>${esc(b.eventTitle)}</div>
-      <div><span>日時</span><b>${esc(dateJa(b.date, true))} ${b.start}〜${b.end}</b></div>
+      <div><span>日時</span><b>${esc(dateJa(b.date, true))} ${esc(b.start)}〜${esc(b.end)}</b></div>
       <div><span>お名前</span>${esc(b.name)} 様</div>
       <div><span>わんちゃん</span>${b.dogs.map(esc).join('／')}</div></div>`;
   if (b.status !== '予約') return showState('キャンセル済みです', sum + '<p>このご予約は、すでにキャンセルされています。</p>');
