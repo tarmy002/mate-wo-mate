@@ -69,6 +69,22 @@ h1{font-size:24px;line-height:1.45;margin-top:10px}
 .months{display:flex;gap:6px;margin-top:14px;overflow-x:auto;padding-bottom:4px}
 .month{flex:none;border:1.5px solid var(--line);background:var(--paper);border-radius:999px;padding:4px 14px;font-size:13.5px;font-weight:700;cursor:pointer}
 .month[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.cal{margin-top:14px}
+.cal-head{display:flex;align-items:center;justify-content:space-between}
+.cal-head b{font-size:16px}
+.cal-nav{border:1.5px solid var(--line);background:var(--paper);border-radius:50%;width:36px;height:36px;font-size:18px;line-height:1;cursor:pointer;color:var(--accent-d)}
+.cal-nav[disabled]{opacity:.3;cursor:default}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:8px;text-align:center}
+.cal-grid .wd{font-size:11.5px;color:var(--mute);padding:2px 0}
+.cal-grid .wd.sun{color:#c0392b}.cal-grid .wd.sat{color:#2e6fb7}
+.cday{aspect-ratio:1/1;border-radius:10px;border:0;background:none;font-size:14px;color:#c4beb5;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;padding:0}
+.cday.on{background:var(--accent-s);color:var(--accent-d);font-weight:700;cursor:pointer;border:1.5px solid transparent}
+.cday.on small{font-size:9.5px;font-weight:700;margin-top:2px}
+.cday.on small.few{color:#b06a00}
+.cday.on[aria-selected="true"] small.few{color:#fff}
+.cday.on[aria-selected="true"]{background:var(--accent);color:#fff}
+.cday.today{text-decoration:underline}
+.cal-note{font-size:11.5px;color:var(--mute);margin-top:6px}
 .dates{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
 .dchip{border:1.5px solid var(--line);background:var(--paper);border-radius:10px;padding:6px 2px;font-size:13.5px;font-weight:700;cursor:pointer;line-height:1.35;text-align:center}
 .dchip small{display:block;font-size:10.5px;font-weight:500;color:var(--mute)}
@@ -268,7 +284,7 @@ function renderList(evs) {
   document.title = '撮影会のご予約｜mate wo mate';
   const card = e => {
     const when = e.whenText || (e.dates.length === 1 ? dateJa(e.dates[0]) : dateJa(e.dates[0]) + '〜' + dateJa(e.dates[e.dates.length - 1]));
-    const lab = e.status === 'before' ? ['受付前', true] : e.status === 'full' ? ['満席', true] : ['空き ' + e.free + '枠・予約する', false];
+    const lab = e.status === 'before' ? ['受付前', true] : e.status === 'full' ? ['満席', true] : [(e.free <= 3 ? '残り' + e.free + '枠・' : '') + '予約する', false];
     return `<a class="ev" href="?e=${encodeURIComponent(e.id)}">${safeUrl(e.hero) ? `<img src="${esc(safeUrl(e.hero))}" alt="" loading="lazy">` : ''}
       <div class="b"><h2 class="serif">${esc(e.title)}</h2><p>${esc(when)}${e.whenText ? '' : ' ' + esc(e.start) + '〜' + esc(e.end)}${e.venue ? '｜' + esc(e.venue) : ''}${e.price ? '｜' + esc(e.price) : ''}</p>
       <span class="go${lab[1] ? ' off' : ''}">${lab[0]}</span></div></a>`;
@@ -339,18 +355,33 @@ function renderDays() {
   const freeOf = d => d.slots.filter(s => !s.closed && s.remain > 0).length;
   let picker = '';
   if (many) {
+    // 月のカレンダー（月〜日）。予約できる日だけ押せる。最初は予約できるいちばん近い日の月を表示
     const months = [...new Set(days.map(d => d.date.slice(0, 7)))];
     if (!state.month || !months.includes(state.month)) state.month = state.day.slice(0, 7);
-    const W2 = '日月火水木金土';
-    picker = `<div class="months" role="tablist">${months.map(m => `<button class="month" role="tab" data-month="${m}" aria-selected="${m === state.month}">${Number(m.slice(5))}月</button>`).join('')}</div>
-      <div class="dates">${days.filter(d => d.date.startsWith(state.month)).map(d => {
-        const [y, mo, dd] = d.date.split('-').map(Number); const w = new Date(Date.UTC(y, mo - 1, dd)).getUTCDay();
-        return `<button class="dchip" data-day="${d.date}" aria-selected="${d.date === state.day}">${mo}/${dd}<span class="${w === 0 ? 'sun' : w === 6 ? 'sat' : ''}">（${W2[w]}）</span><small>空き${freeOf(d)}</small></button>`;
-      }).join('')}</div>`;
+    const byDate = {}; days.forEach(d => { byDate[d.date] = d; });
+    const [cy, cm] = state.month.split('-').map(Number);
+    const first = new Date(Date.UTC(cy, cm - 1, 1)).getUTCDay(); // 0=日
+    const lead = (first + 6) % 7; // 月曜はじまり
+    const last = new Date(Date.UTC(cy, cm, 0)).getUTCDate();
+    const mi = months.indexOf(state.month);
+    const todayStr = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+    let cells = '';
+    for (let i = 0; i < lead; i++) cells += '<span></span>';
+    for (let dd = 1; dd <= last; dd++) {
+      const ds = state.month + '-' + String(dd).padStart(2, '0');
+      const d = byDate[ds];
+      const cls = 'cday' + (d ? ' on' : '') + (ds === todayStr ? ' today' : '');
+      cells += d ? `<button class="${cls}" data-day="${ds}" aria-selected="${ds === state.day}" aria-label="${esc(dateJa(ds))} 予約できます">${dd}${freeOf(d) <= 1 ? '<small class="few">残り1</small>' : ''}</button>`
+                 : `<span class="${cls}" aria-hidden="true">${dd}</span>`;
+    }
+    picker = `<div class="cal">
+      <div class="cal-head"><button class="cal-nav" data-go="-1" ${mi <= 0 ? 'disabled' : ''} aria-label="前の月">‹</button><b>${cy}年${cm}月</b><button class="cal-nav" data-go="1" ${mi >= months.length - 1 ? 'disabled' : ''} aria-label="次の月">›</button></div>
+      <div class="cal-grid">${['月','火','水','木','金','土','日'].map((w, i) => `<span class="wd${i === 5 ? ' sat' : i === 6 ? ' sun' : ''}">${w}</span>`).join('')}${cells}</div>
+      <p class="cal-note">色のついた日が予約できる日です</p></div>`;
   }
   const tabs = !many && days.length > 1 ? `<div class="days" role="tablist">${days.map(d => {
     const free = d.slots.filter(s => !s.closed && s.remain > 0).length;
-    return `<button class="day" role="tab" aria-selected="${d.date === state.day}" data-day="${d.date}">${esc(dateJa(d.date))}<small>${free ? '空き ' + free + '枠' : '満席'}</small></button>`;
+    return `<button class="day" role="tab" aria-selected="${d.date === state.day}" data-day="${d.date}">${esc(dateJa(d.date))}<small>${!free ? '満席' : free <= 3 ? '残り' + free + '枠' : '受付中'}</small></button>`;
   }).join('')}</div>` : '';
   const day = days.find(d => d.date === state.day);
   const btns = day.slots.map(s => {
@@ -365,8 +396,13 @@ function renderDays() {
     ${days.length === 1 || many ? `<p style="margin-top:12px;font-weight:700">${esc(dateJa(day.date, true))}</p>` : ''}
     <div class="slots">${btns}</div>
     ${anyFree ? '' : '<div class="empty">この日は満席になりました。キャンセルが出ると、ここに空き枠が表示されます。</div>'}`;
-  bb.querySelectorAll('.day,.dchip').forEach(b => b.onclick = () => { state.day = b.dataset.day; renderDays(); });
-  bb.querySelectorAll('.month').forEach(b => b.onclick = () => { state.month = b.dataset.month; const first = days.find(d => d.date.startsWith(state.month)); if (first) state.day = first.date; renderDays(); });
+  bb.querySelectorAll('.day,.dchip,.cday.on').forEach(b => b.onclick = () => { state.day = b.dataset.day; renderDays(); });
+  bb.querySelectorAll('.cal-nav:not([disabled])').forEach(b => b.onclick = () => {
+    const months = [...new Set(days.map(d => d.date.slice(0, 7)))];
+    const i = months.indexOf(state.month) + Number(b.dataset.go);
+    if (i < 0 || i >= months.length) return;
+    state.month = months[i]; const f = days.find(d => d.date.startsWith(state.month)); if (f) state.day = f.date; renderDays();
+  });
   bb.querySelectorAll('.slot:not([disabled])').forEach(b => b.onclick = () => pickSlot(day.date, b.dataset.start));
 }
 function slotCap() { return Number(state.data.event.cap) || 1; }
