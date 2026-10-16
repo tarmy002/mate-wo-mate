@@ -66,6 +66,15 @@ h1{font-size:24px;line-height:1.45;margin-top:10px}
 .day small{display:block;font-size:11px;font-weight:500;color:var(--mute)}
 .day[aria-selected="true"]{border-color:var(--accent);background:var(--accent);color:#fff}
 .day[aria-selected="true"] small{color:#d6ecea}
+.months{display:flex;gap:6px;margin-top:14px;overflow-x:auto;padding-bottom:4px}
+.month{flex:none;border:1.5px solid var(--line);background:var(--paper);border-radius:999px;padding:4px 14px;font-size:13.5px;font-weight:700;cursor:pointer}
+.month[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.dates{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+.dchip{border:1.5px solid var(--line);background:var(--paper);border-radius:10px;padding:6px 2px;font-size:13.5px;font-weight:700;cursor:pointer;line-height:1.35;text-align:center}
+.dchip small{display:block;font-size:10.5px;font-weight:500;color:var(--mute)}
+.dchip .sun{color:#c0392b}.dchip .sat{color:#2e6fb7}
+.dchip[aria-selected="true"]{border-color:var(--accent);background:var(--accent);color:#fff}
+.dchip[aria-selected="true"] small,.dchip[aria-selected="true"] span{color:#fff}
 .slots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
 .slot{border:1.5px solid var(--accent);background:var(--paper);color:var(--accent-d);border-radius:10px;padding:9px 4px 7px;font-weight:700;font-size:15px;cursor:pointer;line-height:1.3;text-align:center}
 .slot small{display:block;font-size:11px;font-weight:500}
@@ -258,10 +267,10 @@ function renderList(evs) {
   if (!evs.length) return showState('いま受付中の撮影会はありません', '<p>次回のお知らせは、Instagramと公式LINEでお届けします。</p>');
   document.title = '撮影会のご予約｜mate wo mate';
   const card = e => {
-    const when = e.dates.length === 1 ? dateJa(e.dates[0]) : dateJa(e.dates[0]) + '〜' + dateJa(e.dates[e.dates.length - 1]);
+    const when = e.whenText || (e.dates.length === 1 ? dateJa(e.dates[0]) : dateJa(e.dates[0]) + '〜' + dateJa(e.dates[e.dates.length - 1]));
     const lab = e.status === 'before' ? ['受付前', true] : e.status === 'full' ? ['満席', true] : ['空き ' + e.free + '枠・予約する', false];
     return `<a class="ev" href="?e=${encodeURIComponent(e.id)}">${safeUrl(e.hero) ? `<img src="${esc(safeUrl(e.hero))}" alt="" loading="lazy">` : ''}
-      <div class="b"><h2 class="serif">${esc(e.title)}</h2><p>${esc(when)} ${esc(e.start)}〜${esc(e.end)}${e.venue ? '｜' + esc(e.venue) : ''}${e.price ? '｜' + esc(e.price) : ''}</p>
+      <div class="b"><h2 class="serif">${esc(e.title)}</h2><p>${esc(when)}${e.whenText ? '' : ' ' + esc(e.start) + '〜' + esc(e.end)}${e.venue ? '｜' + esc(e.venue) : ''}${e.price ? '｜' + esc(e.price) : ''}</p>
       <span class="go${lab[1] ? ' off' : ''}">${lab[0]}</span></div></a>`;
   };
   $('#app').innerHTML = `<div class="list-head"><h1 class="serif">撮影会のご予約</h1><p class="sub">ご希望の撮影会を選んでください</p></div>${evs.map(card).join('')}`;
@@ -275,7 +284,7 @@ function render() {
 
   const dateLine = ev.dates.map(d => dateJa(d)).join('・');
   const time = ev.start + '〜' + ev.end;
-  const kicker = ev.dates.length === 1 ? dateJa(ev.dates[0]) + ' 開催' : ev.dates.length + '日間 開催';
+  const kicker = ev.repeat ? 'ご予約受付中' : ev.dates.length === 1 ? dateJa(ev.dates[0]) + ' 開催' : ev.dates.length + '日間 開催';
   const photos = (ev.photos || []).map(safeUrl).filter(Boolean);
   const perks = lines(ev.perks), notes = lines(ev.notes);
 
@@ -283,7 +292,7 @@ function render() {
     <section class="hero">${safeUrl(ev.hero) ? `<img src="${esc(safeUrl(ev.hero))}" alt="">` : ''}</section>
     <div class="hero-txt"><span class="kicker">${esc(kicker)}</span><h1 class="serif">${esc(ev.title)}</h1>${ev.subtitle ? `<p class="sub">${esc(ev.subtitle)}</p>` : ''}</div>
     <dl class="facts">
-      <div><dt>日時</dt><dd><b>${esc(dateLine)}</b><small>${esc(time)}（1組${ev.slotMin}分・ご予約制）</small></dd></div>
+      <div><dt>日時</dt><dd><b>${esc(ev.whenText || dateLine)}</b><small>${ev.whenText ? '' : esc(time)}（1組${esc(ev.slotMin)}分・ご予約制）</small></dd></div>
       ${ev.venue ? `<div><dt>会場</dt><dd>${esc(ev.venue)}${ev.address ? `<small>${esc(ev.address)}${safeUrl(ev.mapUrl) ? ` ／ <a href="${esc(safeUrl(ev.mapUrl))}" target="_blank" rel="noopener">地図</a>` : ''}</small>` : ''}</dd></div>` : ''}
       ${ev.price ? `<div><dt>料金</dt><dd><b>${esc(ev.price)}</b>${ev.priceNote ? `<small>${esc(ev.priceNote)}</small>` : ''}</dd></div>` : ''}
     </dl>
@@ -292,7 +301,7 @@ function render() {
     ${perks.length ? `<div class="perks"><b>特典</b><ul>${perks.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>` : ''}
     <section class="card" id="book">
       <h2 class="serif">ご予約</h2>
-      <p class="hint">ご希望の時間を選んでください。${ev.deadline ? '受付は' + esc(deadlineText(ev.deadline)) + 'までです。' : ''}</p>
+      <p class="hint">${ev.repeat ? 'ご希望の日と時間を選んでください。' : 'ご希望の時間を選んでください。'}${ev.deadline ? '受付は' + esc(deadlineText(ev.deadline)) + 'までです。' : ''}</p>
       <div id="bookBody"></div>
     </section>
     <section class="card" id="formSec" hidden></section>`;
@@ -306,7 +315,7 @@ function render() {
   } else {
     if (!state.day || !days.find(d => d.date === state.day)) {
       const firstFree = days.find(d => d.slots.some(s => !s.closed && s.remain > 0));
-      state.day = (firstFree || days[0]).date;
+      state.day = (firstFree || days[0] || {}).date;
     }
     renderDays();
   }
@@ -325,7 +334,21 @@ function deadlineText(d) {
 function renderDays() {
   const { days } = state.data;
   const bb = $('#bookBody');
-  const tabs = days.length > 1 ? `<div class="days" role="tablist">${days.map(d => {
+  if (!days.length) { bb.innerHTML = '<div class="empty">ただいま予約できる日がありません。</div>'; return; }
+  const many = days.length > 6;
+  const freeOf = d => d.slots.filter(s => !s.closed && s.remain > 0).length;
+  let picker = '';
+  if (many) {
+    const months = [...new Set(days.map(d => d.date.slice(0, 7)))];
+    if (!state.month || !months.includes(state.month)) state.month = state.day.slice(0, 7);
+    const W2 = '日月火水木金土';
+    picker = `<div class="months" role="tablist">${months.map(m => `<button class="month" role="tab" data-month="${m}" aria-selected="${m === state.month}">${Number(m.slice(5))}月</button>`).join('')}</div>
+      <div class="dates">${days.filter(d => d.date.startsWith(state.month)).map(d => {
+        const [y, mo, dd] = d.date.split('-').map(Number); const w = new Date(Date.UTC(y, mo - 1, dd)).getUTCDay();
+        return `<button class="dchip" data-day="${d.date}" aria-selected="${d.date === state.day}">${mo}/${dd}<span class="${w === 0 ? 'sun' : w === 6 ? 'sat' : ''}">（${W2[w]}）</span><small>空き${freeOf(d)}</small></button>`;
+      }).join('')}</div>`;
+  }
+  const tabs = !many && days.length > 1 ? `<div class="days" role="tablist">${days.map(d => {
     const free = d.slots.filter(s => !s.closed && s.remain > 0).length;
     return `<button class="day" role="tab" aria-selected="${d.date === state.day}" data-day="${d.date}">${esc(dateJa(d.date))}<small>${free ? '空き ' + free + '枠' : '満席'}</small></button>`;
   }).join('')}</div>` : '';
@@ -338,11 +361,12 @@ function renderDays() {
     return `<button class="slot${few ? ' few' : ''}" data-start="${esc(s.start)}" ${off ? 'disabled' : ''} aria-pressed="${!!pressed}">${esc(s.start)}<small>${lab}</small></button>`;
   }).join('');
   const anyFree = day.slots.some(s => !s.closed && s.remain > 0);
-  bb.innerHTML = `${tabs}
-    ${days.length === 1 ? `<p style="margin-top:12px;font-weight:700">${esc(dateJa(day.date, true))}</p>` : ''}
+  bb.innerHTML = `${picker}${tabs}
+    ${days.length === 1 || many ? `<p style="margin-top:12px;font-weight:700">${esc(dateJa(day.date, true))}</p>` : ''}
     <div class="slots">${btns}</div>
     ${anyFree ? '' : '<div class="empty">この日は満席になりました。キャンセルが出ると、ここに空き枠が表示されます。</div>'}`;
-  bb.querySelectorAll('.day').forEach(b => b.onclick = () => { state.day = b.dataset.day; renderDays(); });
+  bb.querySelectorAll('.day,.dchip').forEach(b => b.onclick = () => { state.day = b.dataset.day; renderDays(); });
+  bb.querySelectorAll('.month').forEach(b => b.onclick = () => { state.month = b.dataset.month; const first = days.find(d => d.date.startsWith(state.month)); if (first) state.day = first.date; renderDays(); });
   bb.querySelectorAll('.slot:not([disabled])').forEach(b => b.onclick = () => pickSlot(day.date, b.dataset.start));
 }
 function slotCap() { return Number(state.data.event.cap) || 1; }
@@ -377,7 +401,7 @@ function renderForm() {
       ${dogFields}
       ${state.dogs < ev.maxDogs ? `<button type="button" class="adddog" id="adddog">＋ ${state.dogs + 1}頭目を追加する（${ev.maxDogs}頭まで）</button>` : ''}
       ${ev.askStay ? `<div class="field" data-f="stay"><label>1HOTELにご宿泊ですか<span class="req">必須</span></label><div class="radios"><label><input type="radio" name="stay" value="はい">はい</label><label><input type="radio" name="stay" value="いいえ">いいえ</label></div><p class="msg">どちらかを選んでください</p></div>` : ''}
-      ${ev.extraQ ? `<div class="field"><label>${esc(ev.extraQ)}<span class="opt">任意</span></label><input type="text" name="extra"></div>` : ''}
+      ${ev.extraQ ? `<div class="field" data-f="extra"><label>${esc(ev.extraQ)}${ev.extraReq ? '<span class="req">必須</span>' : '<span class="opt">任意</span>'}</label><input type="text" name="extra"><p class="msg">入力してください</p></div>` : ''}
       <div class="field"><label>ご要望・気になること<span class="opt">任意</span></label><textarea name="memo" placeholder="例：音に驚きやすい子です"></textarea></div>
       <label class="check" data-f="vaccine"><input type="checkbox" name="vaccine"><span>混合ワクチンと狂犬病予防接種を済ませています</span></label>
       ${notes.length ? `<div class="notes"><b>ご注意</b><ul>${notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
@@ -419,6 +443,7 @@ async function submit(e) {
   if (!v.vaccine) bad.push('vaccine');
   if (!v.agree) bad.push('agree');
   if (ev.askStay && !v.stay) bad.push('stay');
+  if (ev.extraQ && ev.extraReq && !(v.extra || '').trim()) bad.push('extra');
   document.querySelectorAll('[data-f]').forEach(el => el.classList.toggle('bad', bad.includes(el.dataset.f)));
   const fe = $('#formerr');
   if (bad.length) {
