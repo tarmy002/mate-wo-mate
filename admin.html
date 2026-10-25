@@ -326,6 +326,54 @@ async function r2Put(path, blob, contentType) {
     throw new Error(`R2 upload failed: ${res.status} ${await res.text()}`);
   }
 }
+// ─── 大きいファイル（動画など）は分割アップロード ─────────────────
+// Workerに一度に送れるのは100MBまでなので、90MBを超えるファイルは20MBずつに分けて送る（2026-10-25）
+const MPU_THRESHOLD = 90 * 1024 * 1024;
+const MPU_PART_SIZE = 20 * 1024 * 1024;   // 最後以外は同じ大きさ（R2の決まり）
+async function r2Fetch(url, init, retries = 3) {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const auth = await cachedAuth();
+    let res;
+    try {
+      res = await fetch(url, { ...init, headers: { ...(init.headers||{}), 'Authorization': auth } });
+    } catch (e) {
+      if (attempt === retries - 1) throw e;
+      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+      continue;
+    }
+    if (res.ok) return res;
+    if (res.status === 401 && attempt < retries - 1) { await renewAuth(auth); continue; }
+    if (res.status >= 500 && attempt < retries - 1) { await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue; }
+    throw new Error(`R2 upload failed: ${res.status} ${await res.text()}`);
+  }
+}
+async function r2PutLarge(path, blob, contentType, onProgress) {
+  const base = `${R2_PUBLIC_URL}/${path}`;
+  const { uploadId } = await (await r2Fetch(`${base}?mpu=create`, { method: 'POST', headers: { 'Content-Type': contentType } })).json();
+  const total = Math.ceil(blob.size / MPU_PART_SIZE);
+  const parts = new Array(total);
+  let next = 0, sent = 0;
+  try {
+    const worker = async () => {
+      while (next < total) {
+        const i = next++;
+        const chunk = blob.slice(i * MPU_PART_SIZE, Math.min((i + 1) * MPU_PART_SIZE, blob.size));
+        const res = await r2Fetch(`${base}?mpu=part&uploadId=${encodeURIComponent(uploadId)}&partNumber=${i + 1}`, { method: 'PUT', body: chunk });
+        parts[i] = await res.json();
+        sent += chunk.size;
+        if (onProgress) onProgress(sent, blob.size);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, total) }, worker));
+    await r2Fetch(`${base}?mpu=complete&uploadId=${encodeURIComponent(uploadId)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ parts })
+    });
+  } catch (e) {
+    // 途中で失敗したら、R2に残った分割データを片付ける
+    try { await r2Fetch(`${base}?mpu=abort&uploadId=${encodeURIComponent(uploadId)}`, { method: 'DELETE' }, 1); } catch (_) {}
+    throw e;
+  }
+}
 // storage_path "{galleryId}/{photoId}.jpg" → "{galleryId}/{dir}/{photoId}.jpg"
 function variantPath(sp, dir) {
   const i = sp.lastIndexOf('/');
@@ -640,7 +688,12 @@ async function saveGallery() {
       const pid  = genId();
       const ext  = ph.name.split('.').pop() || 'jpg';
       const path = `${id}/${pid}.${ext}`;
-      await r2Put(path, ph.blob, ph.contentType);
+      if (ph.blob.size > MPU_THRESHOLD) {
+        await r2PutLarge(path, ph.blob, ph.contentType, (sent, total) =>
+          setProgress(done, newPhotos.length, `動画をアップロード中 ${Math.floor(sent / total * 100)}%（${done}/${newPhotos.length}枚 完了）`));
+      } else {
+        await r2Put(path, ph.blob, ph.contentType);
+      }
       // 派生ファイル（一覧用サムネイル／拡大用の中間サイズ）。失敗しても原寸があるので保存自体は止めない
       const extra = [];
       if (ph.thumbBlob) extra.push(r2Put(variantPath(path,'thumb'), ph.thumbBlob, 'image/jpeg').catch(e=>console.warn('thumb upload failed:', path, e)));
