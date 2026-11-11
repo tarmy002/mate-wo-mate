@@ -163,6 +163,35 @@ footer a{color:var(--mute)}
 .ev .go{display:inline-block;margin-top:8px;font-size:13px;font-weight:700;color:#fff;background:var(--orange);border-radius:8px;padding:4px 12px}
 .ev .go.off{background:#aaa}
 .demo{background:#fff6d6;color:#7a5b00;font-size:12px;text-align:center;padding:6px}
+.radios.col{flex-direction:column}
+.radios.col label{justify-content:flex-start;text-align:left}
+.facts dd.multi b{display:block;font-size:14.5px;line-height:1.6;padding:2px 0}
+/* ---- 黒基調（イベント設定の「見た目」が「黒」のとき） ---- */
+body.dark{--accent:#C9A85C;--accent-d:color-mix(in srgb,var(--accent) 72%,#fff);--accent-s:color-mix(in srgb,var(--accent) 16%,#121512);
+  --orange:var(--accent);--orange-s:color-mix(in srgb,var(--accent) 12%,#121512);
+  --cream:#0A0E0A;--paper:#151915;--ink:#ECE8DF;--mute:#A39E93;--line:#2E332D;--err:#FF8F7E}
+body.dark .hero{background:#151915}
+body.dark a{color:var(--accent-d)}
+body.dark .kicker,body.dark .req,body.dark .submit,body.dark .bar a,body.dark .ev .go,
+body.dark .day[aria-selected="true"],body.dark .month[aria-selected="true"],body.dark .cday.on[aria-selected="true"],
+body.dark .dchip[aria-selected="true"],body.dark .slot[aria-pressed="true"],body.dark .done .ok{color:#0A0E0A}
+body.dark .day[aria-selected="true"] small,body.dark .slot[aria-pressed="true"] small,body.dark .dchip[aria-selected="true"] small,
+body.dark .dchip[aria-selected="true"] span,body.dark .cday.on[aria-selected="true"] small.few{color:#0A0E0A}
+body.dark .submit{box-shadow:0 3px 0 color-mix(in srgb,var(--accent) 60%,#000)}
+body.dark .perks b{color:var(--accent-d)}
+body.dark .cday{color:#4A4F49}
+body.dark .cday.on{color:var(--accent-d)}
+body.dark .slot[disabled]{border-color:var(--line);color:#5A5F58;background:#101310}
+body.dark .slot.few small,body.dark .cday.on small.few{color:var(--accent-d)}
+body.dark .field input[type=text],body.dark .field input[type=email],body.dark .field input[type=tel],body.dark .field textarea{background:#0F130F;border-color:var(--line)}
+body.dark .field input::placeholder,body.dark .field textarea::placeholder{color:#5F645D}
+body.dark .formerr{background:#3A1E1A}
+body.dark .bar{background:rgba(10,14,10,.96)}
+body.dark .btn2{background:var(--paper)}
+body.dark .state p{color:#CFCAC0}
+body.dark .skel{background:linear-gradient(90deg,#151915 0,#1E231D 50%,#151915 100%);background-size:200% 100%}
+body.dark .top .logo{height:52px}
+@media (min-width:600px){body.dark .wrap{box-shadow:0 6px 30px rgba(0,0,0,.5)}}
 @media (min-width:600px){
   body{font-size:15.5px}
   .wrap{margin-top:24px;margin-bottom:24px;background:var(--cream);border-radius:18px;overflow:hidden;box-shadow:0 6px 30px rgba(0,0,0,.06)}
@@ -174,11 +203,11 @@ footer a{color:var(--mute)}
 <div class="wrap">
   <div id="demo" class="demo" hidden>見本表示です（実際の予約にはなりません）</div>
   <header class="top">
-    <img class="logo" src="img/logo.png" alt="mate wo mate">
+    <img class="logo" id="logo" src="img/logo.png" alt="mate wo mate">
     <div class="partner" id="partner"></div>
   </header>
   <main id="app"><div class="skel"></div><p class="loading">空き状況を読み込んでいます…</p></main>
-  <footer>犬の写真スタジオ mate wo mate（マテヲマテ）<br>静岡市駿河区丸子 1HOTEL内 ／ <a href="mailto:info@wansna.com">info@wansna.com</a></footer>
+  <footer><span id="brand">犬の写真スタジオ mate wo mate（マテヲマテ）</span><br>静岡市駿河区丸子 1HOTEL内 ／ <a href="mailto:info@wansna.com">info@wansna.com</a></footer>
 </div>
 <div class="bar" id="bar"><a href="#book">空いている時間を見る</a></div>
 
@@ -201,6 +230,9 @@ function dateJa(d, withYear) {
   return (withYear ? y + '年' : '') + m + '月' + dd + '日（' + wd + '）';
 }
 const state = { data: null, day: null, slot: null, dogs: 1 };
+// お問い合わせ先の呼び方（生体＝LAIR は Instagram のDM、それ以外は公式LINE）
+const isCreature = () => !!(state.data && state.data.event && state.data.event.kind === 'creature');
+const contact = () => isCreature() ? 'Instagram @macro.lair のDM' : '公式LINE';
 
 /* ---------- API ---------- */
 async function api(method, payload) {
@@ -294,7 +326,10 @@ function renderList(evs) {
 
 function render() {
   const { event: ev, days, status } = state.data;
-  if (ev.color) document.documentElement.style.setProperty('--accent', ev.color);
+  document.body.classList.toggle('dark', !!ev.dark);
+  if (ev.color) (ev.dark ? document.body : document.documentElement).style.setProperty('--accent', ev.color);
+  if (safeUrl(ev.logo)) { const lg = $('#logo'); lg.src = safeUrl(ev.logo); lg.alt = ev.brand || ev.title; }
+  if (ev.brand) $('#brand').textContent = ev.brand;
   document.title = ev.title + '｜ご予約｜mate wo mate';
   $('#partner').innerHTML = (ev.partnerName ? `<span>${esc(ev.partnerName)}</span>` : '') + (safeUrl(ev.partnerLogo) ? `<img src="${esc(safeUrl(ev.partnerLogo))}" alt="">` : '');
 
@@ -310,7 +345,7 @@ function render() {
     <dl class="facts">
       <div><dt>日時</dt><dd><b>${esc(ev.whenText || dateLine)}</b><small>${ev.whenText ? '' : esc(time)}（1組${esc(ev.slotMin)}分・ご予約制）</small></dd></div>
       ${ev.venue ? `<div><dt>会場</dt><dd>${esc(ev.venue)}${ev.address ? `<small>${esc(ev.address)}${safeUrl(ev.mapUrl) ? ` ／ <a href="${esc(safeUrl(ev.mapUrl))}" target="_blank" rel="noopener">地図</a>` : ''}</small>` : ''}</dd></div>` : ''}
-      ${ev.price ? `<div><dt>料金</dt><dd><b>${esc(ev.price)}</b>${ev.priceNote ? `<small>${esc(ev.priceNote)}</small>` : ''}</dd></div>` : ''}
+      ${ev.price ? `<div><dt>料金</dt><dd${lines(ev.price).length > 1 ? ' class="multi"' : ''}>${lines(ev.price).map(l => `<b>${esc(l)}</b>`).join('')}${ev.priceNote ? `<small>${lines(ev.priceNote).map(esc).join('<br>')}</small>` : ''}</dd></div>` : ''}
     </dl>
     ${ev.lead ? `<div class="block text">${lines(ev.lead).map(l => `<p>${esc(l)}</p>`).join('')}</div>` : ''}
     ${photos.length ? `<div class="photos n${photos.length}">${photos.map(p => `<img src="${esc(p)}" alt="" loading="lazy">`).join('')}</div>` : ''}
@@ -344,6 +379,7 @@ function deadlineText(d) {
   const m = String(d).match(/前日\s*(\d{1,2})[:：](\d{2})/);
   if (m) return '前日の' + Number(m[1]) + ':' + m[2];
   const h = Number(String(d).replace(/[^\d.]/g, ''));
+  if (h >= 48 && h % 24 === 0) return '各回の' + (h / 24) + '日前';
   return h ? '各回の' + h + '時間前' : '開始時刻';
 }
 
@@ -422,7 +458,16 @@ function renderForm() {
   const f = $('#formSec');
   const keep = collect(true);
   f.hidden = false;
-  const dogFields = Array.from({ length: state.dogs }, (_, i) => `
+  const cr = ev.kind === 'creature'; // 生体（爬虫類など）
+  const qFields = (ev.qs || []).map((q, i) => {
+    const badge = q.req ? '<span class="req">必須</span>' : '<span class="opt">任意</span>';
+    return q.opts && q.opts.length
+      ? `<div class="field" data-f="q${i}"><label>${esc(q.q)}${badge}</label><div class="radios col">${q.opts.map(o => `<label><input type="radio" name="q${i}" value="${esc(o)}">${esc(o)}</label>`).join('')}</div><p class="msg">どれかを選んでください</p></div>`
+      : `<div class="field" data-f="q${i}"><label>${esc(q.q)}${badge}</label><input type="text" name="q${i}" autocomplete="off"><p class="msg">入力してください</p></div>`;
+  }).join('');
+  const dogFields = cr ? `
+    <div class="field" data-f="dog0"><label>生体の種類と匹数<span class="req">必須</span></label>
+      <input type="text" name="dog0" placeholder="例：レオパ 1匹" autocomplete="off"><p class="msg">生体の種類と匹数を入れてください</p></div>` : Array.from({ length: state.dogs }, (_, i) => `
     <div class="field" data-f="dog${i}"><label>${i === 0 ? 'わんちゃんのお名前と犬種<span class="req">必須</span>' : (i + 1) + '頭目のお名前と犬種<span class="opt">任意</span>'}</label>
       <input type="text" name="dog${i}" placeholder="例：こむぎ（トイプードル）" autocomplete="off"><p class="msg">わんちゃんのお名前と犬種を入れてください</p></div>`).join('');
   const notes = window.__notes || [];
@@ -433,13 +478,14 @@ function renderForm() {
       <div class="hp" aria-hidden="true"><label>website<input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
       <div class="field" data-f="name"><label>お名前<span class="req">必須</span></label><input type="text" name="name" autocomplete="name" placeholder="例：山田 花子"><p class="msg">お名前を入れてください</p></div>
       <div class="field" data-f="email"><label>メールアドレス<span class="req">必須</span></label><input type="email" name="email" autocomplete="email" inputmode="email" placeholder="例：hanako@example.com"><p class="help">確認メールと前日のお知らせをお送りします</p><p class="msg">メールアドレスをご確認ください</p></div>
-      <div class="field" data-f="tel"><label>電話番号<span class="req">必須</span></label><input type="tel" name="tel" autocomplete="tel" inputmode="tel" placeholder="例：090-1234-5678"><p class="help">当日の雨天のご連絡などに使います</p><p class="msg">電話番号をご確認ください</p></div>
+      <div class="field" data-f="tel"><label>電話番号<span class="req">必須</span></label><input type="tel" name="tel" autocomplete="tel" inputmode="tel" placeholder="例：090-1234-5678"><p class="help">${cr ? '当日のご連絡に使います' : '当日の雨天のご連絡などに使います'}</p><p class="msg">電話番号をご確認ください</p></div>
       ${dogFields}
-      ${state.dogs < ev.maxDogs ? `<button type="button" class="adddog" id="adddog">＋ ${state.dogs + 1}頭目を追加する（${ev.maxDogs}頭まで）</button>` : ''}
+      ${!cr && state.dogs < ev.maxDogs ? `<button type="button" class="adddog" id="adddog">＋ ${state.dogs + 1}頭目を追加する（${ev.maxDogs}頭まで）</button>` : ''}
       ${ev.askStay ? `<div class="field" data-f="stay"><label>1HOTELにご宿泊ですか<span class="req">必須</span></label><div class="radios"><label><input type="radio" name="stay" value="はい">はい</label><label><input type="radio" name="stay" value="いいえ">いいえ</label></div><p class="msg">どちらかを選んでください</p></div>` : ''}
       ${ev.extraQ ? `<div class="field" data-f="extra"><label>${esc(ev.extraQ)}${ev.extraReq ? '<span class="req">必須</span>' : '<span class="opt">任意</span>'}</label><input type="text" name="extra"><p class="msg">入力してください</p></div>` : ''}
-      <div class="field"><label>ご要望・気になること<span class="opt">任意</span></label><textarea name="memo" placeholder="例：音に驚きやすい子です"></textarea></div>
-      <label class="check" data-f="vaccine"><input type="checkbox" name="vaccine"><span>混合ワクチンと狂犬病予防接種を済ませています</span></label>
+      ${qFields}
+      <div class="field"><label>ご要望・気になること<span class="opt">任意</span></label><textarea name="memo" placeholder="${cr ? '例：臆病な子です／来週あたりに脱皮しそうです' : '例：音に驚きやすい子です'}"></textarea></div>
+      ${cr ? '' : '<label class="check" data-f="vaccine"><input type="checkbox" name="vaccine"><span>混合ワクチンと狂犬病予防接種を済ませています</span></label>'}
       ${notes.length ? `<div class="notes"><b>ご注意</b><ul>${notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
       <label class="check" data-f="agree"><input type="checkbox" name="agree"><span>${notes.length ? '「ご注意」を確認しました' : '内容を確認しました'}</span></label>
       <div class="formerr" id="formerr"></div>
@@ -476,8 +522,11 @@ async function submit(e) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email.trim())) bad.push('email');
   if (v.tel.replace(/[^\d]/g, '').length < 10) bad.push('tel');
   if (!v.dog0.trim()) bad.push('dog0');
-  if (!v.vaccine) bad.push('vaccine');
+  const cr = ev.kind === 'creature';
+  if (!cr && !v.vaccine) bad.push('vaccine');
   if (!v.agree) bad.push('agree');
+  (ev.qs || []).forEach((q, i) => { if (q.req && !(v['q' + i] || '').trim()) bad.push('q' + i); });
+  const answers = (ev.qs || []).map((q, i) => (v['q' + i] || '').trim());
   if (ev.askStay && !v.stay) bad.push('stay');
   if (ev.extraQ && ev.extraReq && !(v.extra || '').trim()) bad.push('extra');
   document.querySelectorAll('[data-f]').forEach(el => el.classList.toggle('bad', bad.includes(el.dataset.f)));
@@ -495,7 +544,7 @@ async function submit(e) {
   try {
     res = await api('POST', { action: 'book', id: ev.id, date: state.slot.date, start: state.slot.start,
       name: v.name.trim(), email: v.email.trim(), tel: v.tel.trim(), dogs, vaccine: !!v.vaccine, agree: !!v.agree,
-      stay: v.stay || '', extra: v.extra || '', memo: v.memo || '', website: v.website || '' });
+      stay: v.stay || '', extra: v.extra || '', answers, memo: v.memo || '', website: v.website || '' });
   } catch (err) { res = { ok: false, code: 'network' }; }
   if (res.ok) return done(res, v, dogs);
   btn.disabled = false; btn.textContent = 'この内容で予約する';
@@ -503,10 +552,10 @@ async function submit(e) {
     full: 'タッチの差で、この時間は埋まってしまいました。ほかの時間をお選びください。',
     closed: 'この時間の受付は終了しました。ほかの時間をお選びください。',
     dup: 'この時間は、同じメールアドレスですでにご予約いただいています。',
-    limit: 'お一人さまがご予約できるのは2枠までです。ほかのご予約の変更は公式LINEからご連絡ください。',
+    limit: 'お一人さまがご予約できるのは2枠までです。ほかのご予約の変更は' + contact() + 'からご連絡ください。',
     invalid: '入力内容をご確認ください。', busy: '混み合っています。少し待ってからもう一度お試しください。',
     network: '通信できませんでした。電波の良いところでもう一度お試しください。',
-  }[res.code] || 'ご予約できませんでした。お手数ですが、公式LINEからお問い合わせください。';
+  }[res.code] || 'ご予約できませんでした。お手数ですが、' + contact() + 'からお問い合わせください。';
   fe.textContent = msg; fe.classList.add('show');
   if (res.code === 'full' || res.code === 'closed') {
     try { const r = await api('GET', { action: 'event', id: ev.id }); if (r.ok) { state.data = r; state.slot = null; renderDays(); $('#formSec').hidden = true; } } catch (_) {}
@@ -534,12 +583,13 @@ function done(r, v, dogs) {
       <div><span>日時</span><b>${esc(dateJa(r.date, true))} ${esc(r.start)}〜${esc(r.end)}</b></div>
       ${ev.venue ? `<div><span>会場</span>${esc(ev.venue)}</div>` : ''}
       <div><span>お名前</span>${esc(v.name)} 様</div>
-      <div><span>わんちゃん</span>${dogs.map(esc).join('／')}</div>
+      <div><span>${ev.kind === 'creature' ? '生体' : 'わんちゃん'}</span>${dogs.map(esc).join('／')}</div>
       <div><span>予約ID</span>${esc(r.bookingId)}</div>
     </div>
     <p>確認メールを <b>${esc(v.email)}</b> にお送りしました。<br>届かない場合は、迷惑メールのフォルダもご確認ください。</p>
     <p style="margin-top:14px"><a class="btn2" href="${gcalLink(ev, r)}" target="_blank" rel="noopener">カレンダーに追加する</a></p>
-    ${safeUrl(ev.lineUrl) ? `<p style="margin-top:14px;font-size:13px">ご不明な点は<a href="${esc(safeUrl(ev.lineUrl))}" target="_blank" rel="noopener">公式LINE</a>からどうぞ。</p>` : ''}`,
+    ${isCreature() ? `<p style="margin-top:14px;font-size:13px">ご質問は <a href="https://www.instagram.com/macro.lair/" target="_blank" rel="noopener">Instagram @macro.lair</a> のDMからどうぞ。</p>`
+      : safeUrl(ev.lineUrl) ? `<p style="margin-top:14px;font-size:13px">ご不明な点は<a href="${esc(safeUrl(ev.lineUrl))}" target="_blank" rel="noopener">公式LINE</a>からどうぞ。</p>` : ''}`,
     'done');
   $('.state').insertAdjacentHTML('afterbegin', '<div class="ok">✓</div>');
 }
@@ -550,19 +600,21 @@ async function loadCancel(token) {
   try { r = await api('GET', { action: 'booking', token }); } catch (_) { r = { ok: false }; }
   if (!r.ok) return showState('ご予約が見つかりません', '<p>メールのリンクをもう一度お試しいただくか、公式LINEからお問い合わせください。</p>');
   const b = r.booking;
+  const via = b.petLabel === '生体' ? 'Instagram @macro.lair のDM' : '公式LINE';
+  if (b.petLabel === '生体') document.body.classList.add('dark');
   const sum = `<div class="summary">
       <div><span>イベント</span>${esc(b.eventTitle)}</div>
       <div><span>日時</span><b>${esc(dateJa(b.date, true))} ${esc(b.start)}〜${esc(b.end)}</b></div>
       <div><span>お名前</span>${esc(b.name)} 様</div>
-      <div><span>わんちゃん</span>${b.dogs.map(esc).join('／')}</div></div>`;
+      <div><span>${esc(b.petLabel || 'わんちゃん')}</span>${b.dogs.map(esc).join('／')}</div></div>`;
   if (b.status !== '予約') return showState('キャンセル済みです', sum + '<p>このご予約は、すでにキャンセルされています。</p>');
-  if (!b.canCancel) return showState('ページからはキャンセルできません', sum + '<p>キャンセルの受付期限を過ぎています。お手数ですが、公式LINEからご連絡ください。</p>');
+  if (!b.canCancel) return showState('ページからはキャンセルできません', sum + '<p>キャンセルの受付期限を過ぎています。お手数ですが、${via}からご連絡ください。</p>');
   showState('ご予約のキャンセル', sum + '<p>このご予約をキャンセルしますか？</p><button class="btn-danger" id="doCancel">キャンセルする</button>');
   $('#doCancel').onclick = async () => {
     const btn = $('#doCancel'); btn.disabled = true; btn.textContent = '処理しています…';
     let x; try { x = await api('POST', { action: 'cancel', token }); } catch (_) { x = { ok: false }; }
     if (x.ok) showState('キャンセルを承りました', sum + '<p>確認のメールをお送りしました。<br>またの機会にお会いできるのを楽しみにしています。</p>');
-    else { btn.disabled = false; btn.textContent = 'キャンセルする'; btn.insertAdjacentHTML('afterend', '<div class="formerr show">キャンセルできませんでした。お手数ですが、公式LINEからご連絡ください。</div>'); }
+    else { btn.disabled = false; btn.textContent = 'キャンセルする'; btn.insertAdjacentHTML('afterend', '<div class="formerr show">キャンセルできませんでした。お手数ですが、${via}からご連絡ください。</div>'); }
   };
 }
 
