@@ -44,6 +44,8 @@ h1{font-size:24px;line-height:1.45;margin-top:10px}
 .facts dt{color:var(--mute);font-size:12px;padding-top:2px}
 .facts dd b{font-size:16px}
 .facts small{display:block;color:var(--mute);font-size:12px}
+.facts small.when-note{margin-top:4px;font-size:12.5px;color:var(--ink)}
+.facts small.when-note a{color:#06C755;font-weight:700}
 .facts a{color:var(--accent)}
 
 .block{margin:20px 16px}
@@ -326,6 +328,15 @@ function renderList(evs) {
   $('#app').innerHTML = `<div class="list-head"><h1 class="serif">撮影会のご予約</h1><p class="sub">ご希望の撮影会を選んでください</p></div>${evs.map(card).join('')}`;
 }
 
+// 「日時の表示」の2行目以降は小さな注記に。文中の「公式LINE」は公式LINEへのリンクにする
+function whenNote(ev) {
+  const rest = lines(ev.whenText).slice(1);
+  if (!rest.length) return '';
+  const url = ev.kind !== 'creature' && safeUrl(ev.lineUrl);
+  const link = t => url ? esc(t).replace(/公式LINE/g, `<a href="${esc(url)}" target="_blank" rel="noopener">公式LINE</a>`) : esc(t);
+  return `<small class="when-note">${rest.map(link).join('<br>')}</small>`;
+}
+
 function render() {
   const { event: ev, days, status } = state.data;
   document.body.classList.toggle('dark', !!ev.dark);
@@ -348,7 +359,7 @@ function render() {
     <section class="hero">${safeUrl(ev.hero) ? `<img src="${esc(safeUrl(ev.hero))}" alt="">` : ''}</section>
     <div class="hero-txt"><span class="kicker">${esc(kicker)}</span><h1 class="serif">${esc(ev.title)}</h1>${ev.subtitle ? `<p class="sub">${esc(ev.subtitle)}</p>` : ''}</div>
     <dl class="facts">
-      <div><dt>日時</dt><dd><b>${esc(ev.whenText || dateLine)}</b><small>${ev.whenText ? '' : esc(time)}（1組${esc(ev.slotMin)}分・ご予約制）</small></dd></div>
+      <div><dt>日時</dt><dd><b>${esc(lines(ev.whenText)[0] || dateLine)}</b><small>${ev.whenText ? '' : esc(time)}（1組${esc(ev.slotMin)}分・ご予約制）</small>${whenNote(ev)}</dd></div>
       ${ev.venue ? `<div><dt>会場</dt><dd>${esc(ev.venue)}${ev.address ? `<small>${esc(ev.address)}${safeUrl(ev.mapUrl) ? ` ／ <a href="${esc(safeUrl(ev.mapUrl))}" target="_blank" rel="noopener">地図</a>` : ''}</small>` : ''}</dd></div>` : ''}
       ${ev.price ? `<div><dt>料金</dt><dd${lines(ev.price).length > 1 ? ' class="multi"' : ''}>${lines(ev.price).map(l => `<b>${esc(l)}</b>`).join('')}${ev.priceNote ? `<small>${lines(ev.priceNote).map(esc).join('<br>')}</small>` : ''}</dd></div>` : ''}
     </dl>
